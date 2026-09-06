@@ -1,0 +1,21 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 19c748fac350b0245aced7b3609aa9e5, type: 3}
+  m_Name: Shape_L_2x2
+  m_EditorClassIdentifier: 
+  shapeId: Shape_L_2x2
+  prefab: {fileID: 2240560213169614515, guid: 6103ec50f8d81184296f97dd7afcdc4e, type: 3}
+  bounds: {x: 2, y: 2}
+  localOccupiedCells:
+  - {x: 0, y: 1}
+  - {x: 0, y: 0}
+  - {x: 1, y: 0}
