@@ -40,8 +40,9 @@ namespace LegoPuzzle.Runtime
             }
 
             transform.localPosition = new Vector3(data.position.x * cellSize, -0.01f, data.position.y * cellSize);
-            transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
-            transform.localScale = Vector3.one * cellSize;
+
+            // Автоматичне вирівнювання орієнтації та масштабу залежно від типу мешу (Quad, Plane, Cube)
+            AlignAndScaleCell(cellSize);
 
             // Застосовуємо матеріал з текстурою
             if (mainRenderer != null && palette != null)
@@ -98,6 +99,44 @@ namespace LegoPuzzle.Runtime
             }
         }
 
+        private void AlignAndScaleCell(float cellSize)
+        {
+            MeshFilter mf = GetComponent<MeshFilter>();
+            if (mf == null) mf = GetComponentInChildren<MeshFilter>(true);
+
+            if (mf != null && mf.sharedMesh != null)
+            {
+                Bounds b = mf.sharedMesh.bounds;
+
+                // Якщо це 2D Quad/Sprite у площині XY (Z ~ 0, але Y > 0)
+                if (b.size.z < 0.01f && b.size.y > 0.01f)
+                {
+                    transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+                    float scaleX = b.size.x > 0.001f ? (cellSize / b.size.x) : cellSize;
+                    float scaleY = b.size.y > 0.001f ? (cellSize / b.size.y) : cellSize;
+                    transform.localScale = new Vector3(scaleX, scaleY, 1f);
+                }
+                else
+                {
+                    // Якщо це Plane (10x10), Cube (1x1x1) або 3D-модель у площині XZ
+                    transform.localRotation = Quaternion.identity;
+                    float rawSizeX = Mathf.Max(b.size.x, 0.01f);
+                    float rawSizeZ = Mathf.Max(b.size.z, 0.01f);
+
+                    float scaleX = cellSize / rawSizeX;
+                    float scaleZ = cellSize / rawSizeZ;
+                    float scaleY = (b.size.y > 0.05f) ? (cellSize / Mathf.Max(rawSizeX, rawSizeZ)) : 1f;
+
+                    transform.localScale = new Vector3(scaleX, scaleY, scaleZ);
+                }
+            }
+            else
+            {
+                transform.localRotation = Quaternion.identity;
+                transform.localScale = Vector3.one * cellSize;
+            }
+        }
+
         private void SetupExitGate(CellData data)
         {
             if (mainRenderer != null)
@@ -125,7 +164,8 @@ namespace LegoPuzzle.Runtime
                     ExitDirection.Left => 90f,
                     _ => 0f
                 };
-                arrowTransform.localRotation = Quaternion.Euler(0, 0, angle);
+                arrowTransform.localRotation = Quaternion.Euler(90f, 0f, angle);
+                arrowTransform.localPosition = new Vector3(0f, 0.05f, 0f);
             }
         }
     }

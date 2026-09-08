@@ -25,6 +25,18 @@ namespace LegoPuzzle.Runtime
         [SerializeField] private Transform boardContainer;
         [SerializeField] private Transform piecesContainer;
 
+        [Header("Звукові ефекти (SFX)")]
+        [Tooltip("Звук кроку/зміни клітинки блоком (шарудіння/клацання)")]
+        [SerializeField] private AudioClip pieceStepSound;
+
+        [Tooltip("Звук вильоту блоку у ворота")]
+        [SerializeField] private AudioClip pieceExitSound;
+
+        [Tooltip("Звук перемоги на рівні")]
+        [SerializeField] private AudioClip levelWonSound;
+
+        [SerializeField] private AudioSource audioSource;
+
         public LevelData CurrentLevel { get; private set; }
         public bool IsGameplayActive { get; private set; } = false;
         public float RemainingTime { get; private set; }
@@ -33,6 +45,7 @@ namespace LegoPuzzle.Runtime
         private readonly List<LegoPieceView> activePieces = new List<LegoPieceView>();
         private int requiredPiecesToWin = 0;
         private int piecesExited = 0;
+        private float lastStepSoundTime = 0f;
 
         public event Action<int> OnLevelLoaded;
         public event Action<float> OnTimerUpdated;
@@ -48,6 +61,20 @@ namespace LegoPuzzle.Runtime
 
             EnsurePalette();
             EnsureEventSystem();
+            EnsureAudioSource();
+        }
+
+        private void EnsureAudioSource()
+        {
+            if (audioSource == null)
+            {
+                audioSource = GetComponent<AudioSource>();
+                if (audioSource == null)
+                {
+                    audioSource = gameObject.AddComponent<AudioSource>();
+                }
+            }
+            audioSource.playOnAwake = false;
         }
 
         private void OnValidate()
@@ -218,7 +245,7 @@ namespace LegoPuzzle.Runtime
 
                     cellObj.name = $"Cell_{x}_{y}_{cellData.cellType}";
                     cellObj.transform.localPosition = new Vector3(x * cellSize, -0.01f, y * cellSize);
-                    cellObj.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+                    cellObj.transform.localRotation = Quaternion.identity;
                     cellObj.transform.localScale = Vector3.one * cellSize;
 
                     GridCellView cellView = cellObj.GetComponent<GridCellView>();
@@ -334,11 +361,17 @@ namespace LegoPuzzle.Runtime
 
         public bool CanMovePieceTo(LegoPieceView movingPiece, Vector2Int newOrigin)
         {
-            if (CurrentLevel == null) return false;
+            if (CurrentLevel == null || movingPiece == null || movingPiece.PieceData == null) return false;
 
             var offsets = movingPiece.PieceData.shape != null
                 ? movingPiece.PieceData.shape.GetRotatedOffsets(movingPiece.PieceData.rotationSteps)
                 : new List<Vector2Int> { Vector2Int.zero };
+
+            Color pieceColor = movingPiece.PieceData.GetColor();
+            BlockColorType pieceColorType = movingPiece.PieceData.colorType;
+            MoveRestriction restriction = movingPiece.PieceData.moveRestriction;
+
+            if (restriction == MoveRestriction.Locked) return false;
 
             foreach (var offset in offsets)
             {
@@ -353,6 +386,29 @@ namespace LegoPuzzle.Runtime
                 // Не можна ставати на порожні місця або перешкоди
                 if (cellData.cellType == CellType.Empty || cellData.cellType == CellType.Obstacle)
                     return false;
+
+                // На ворота дозволено ставати ТІЛЬКИ якщо збігається колір та дозволений напрямок руху
+                if (cellData.cellType == CellType.ExitGate)
+                {
+                    bool colorMatches = (cellData.gateColorType == BlockColorType.Universal) ||
+                                        (cellData.gateColorType == pieceColorType) ||
+                                        ColorsMatch(pieceColor, cellData.GetEffectiveColor());
+
+                    if (!colorMatches)
+                        return false;
+
+                    if (restriction == MoveRestriction.HorizontalOnly &&
+                        (cellData.exitDirection == ExitDirection.Up || cellData.exitDirection == ExitDirection.Down))
+                    {
+                        return false;
+                    }
+
+                    if (restriction == MoveRestriction.VerticalOnly &&
+                        (cellData.exitDirection == ExitDirection.Left || cellData.exitDirection == ExitDirection.Right))
+                    {
+                        return false;
+                    }
+                }
 
                 // Перевірка колізій з іншими блоками LEGO
                 foreach (var otherPiece in activePieces)
@@ -425,30 +481,158 @@ namespace LegoPuzzle.Runtime
         public bool CheckIfPieceExits(LegoPieceView piece, Vector2Int currentOrigin, out ExitDirection exitDirection)
         {
             exitDirection = ExitDirection.Up;
+            if (piece == null || piece.PieceData == null) return false;
+            if (piece.PieceData.moveRestriction == MoveRestriction.Locked) return false;
+
             var occupied = piece.GetCurrentOccupiedCells();
+            if (occupied == null || occupied.Count == 0) return false;
 
-            // Перевіряємо, чи клітинки деталі потрапили у відповідні ворота
-            foreach (var cellPos in occupied)
+            Color pieceColor = piece.PieceData.GetColor();
+            BlockColorType pieceColorType = piece.PieceData.colorType;
+
+            // Перевіряємо всі можливі напрямки виходу
+            ExitDirection[] directions = new ExitDirection[]
             {
-                if (spawnedCells.TryGetValue(cellPos, out GridCellView cellView))
-                {
-                    if (cellView.CellType == CellType.ExitGate)
-                    {
-                        // 1. Універсальні ворота (Universal) — приймають будь-які блоки незалежно від кольору
-                        if (cellView.GateColorType == BlockColorType.Universal)
-                        {
-                            exitDirection = cellView.ExitDirection;
-                            return true;
-                        }
+                ExitDirection.Up,
+                ExitDirection.Down,
+                ExitDirection.Left,
+                ExitDirection.Right
+            };
 
-                        // 2. Кольорові ворота — перевіряють збіг кольору деталі
-                        Color pieceColor = piece.PieceData.GetColor();
-                        if (ColorsMatch(pieceColor, cellView.GateColor))
+            foreach (var dir in directions)
+            {
+                if (piece.PieceData.moveRestriction == MoveRestriction.HorizontalOnly && (dir == ExitDirection.Up || dir == ExitDirection.Down))
+                    continue;
+
+                if (piece.PieceData.moveRestriction == MoveRestriction.VerticalOnly && (dir == ExitDirection.Left || dir == ExitDirection.Right))
+                    continue;
+
+                if (CanPieceExitInDirection(occupied, pieceColorType, pieceColor, dir))
+                {
+                    exitDirection = dir;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private bool CanPieceExitInDirection(List<Vector2Int> occupied, BlockColorType pieceColorType, Color pieceColor, ExitDirection dir)
+        {
+            if (occupied == null || occupied.Count == 0) return false;
+
+            switch (dir)
+            {
+                case ExitDirection.Up:
+                {
+                    // Знаходимо максимальний Y серед усіх клітинок деталі
+                    int maxY = int.MinValue;
+                    HashSet<int> occupiedCols = new HashSet<int>();
+                    foreach (var cell in occupied)
+                    {
+                        if (cell.y > maxY) maxY = cell.y;
+                        occupiedCols.Add(cell.x);
+                    }
+
+                    // Уся ширина деталі (всі зайняті колонки) на лінії maxY повинна відповідати верхнім воротам
+                    foreach (int x in occupiedCols)
+                    {
+                        Vector2Int gatePos = new Vector2Int(x, maxY);
+                        if (!IsMatchingExitGate(gatePos, dir, pieceColorType, pieceColor))
                         {
-                            exitDirection = cellView.ExitDirection;
-                            return true;
+                            return false;
                         }
                     }
+                    return true;
+                }
+
+                case ExitDirection.Down:
+                {
+                    // Знаходимо мінімальний Y серед усіх клітинок деталі
+                    int minY = int.MaxValue;
+                    HashSet<int> occupiedCols = new HashSet<int>();
+                    foreach (var cell in occupied)
+                    {
+                        if (cell.y < minY) minY = cell.y;
+                        occupiedCols.Add(cell.x);
+                    }
+
+                    // Уся ширина деталі (всі зайняті колонки) на лінії minY повинна відповідати нижнім воротам
+                    foreach (int x in occupiedCols)
+                    {
+                        Vector2Int gatePos = new Vector2Int(x, minY);
+                        if (!IsMatchingExitGate(gatePos, dir, pieceColorType, pieceColor))
+                        {
+                            return false;
+                        }
+                    }
+                    return true;
+                }
+
+                case ExitDirection.Right:
+                {
+                    // Знаходимо максимальний X серед усіх клітинок деталі
+                    int maxX = int.MinValue;
+                    HashSet<int> occupiedRows = new HashSet<int>();
+                    foreach (var cell in occupied)
+                    {
+                        if (cell.x > maxX) maxX = cell.x;
+                        occupiedRows.Add(cell.y);
+                    }
+
+                    // Уся висота деталі (всі зайняті рядки) на лінії maxX повинна відповідати правим воротам
+                    foreach (int y in occupiedRows)
+                    {
+                        Vector2Int gatePos = new Vector2Int(maxX, y);
+                        if (!IsMatchingExitGate(gatePos, dir, pieceColorType, pieceColor))
+                        {
+                            return false;
+                        }
+                    }
+                    return true;
+                }
+
+                case ExitDirection.Left:
+                {
+                    // Знаходимо мінімальний X серед усіх клітинок деталі
+                    int minX = int.MaxValue;
+                    HashSet<int> occupiedRows = new HashSet<int>();
+                    foreach (var cell in occupied)
+                    {
+                        if (cell.x < minX) minX = cell.x;
+                        occupiedRows.Add(cell.y);
+                    }
+
+                    // Уся висота деталі (всі зайняті рядки) на лінії minX повинна відповідати лівим воротам
+                    foreach (int y in occupiedRows)
+                    {
+                        Vector2Int gatePos = new Vector2Int(minX, y);
+                        if (!IsMatchingExitGate(gatePos, dir, pieceColorType, pieceColor))
+                        {
+                            return false;
+                        }
+                    }
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private bool IsMatchingExitGate(Vector2Int pos, ExitDirection expectedDir, BlockColorType pieceColorType, Color pieceColor)
+        {
+            if (spawnedCells.TryGetValue(pos, out GridCellView cellView))
+            {
+                if (cellView.CellType == CellType.ExitGate && cellView.ExitDirection == expectedDir)
+                {
+                    if (cellView.GateColorType == BlockColorType.Universal)
+                        return true;
+
+                    if (cellView.GateColorType == pieceColorType)
+                        return true;
+
+                    if (ColorsMatch(pieceColor, cellView.GateColor))
+                        return true;
                 }
             }
 
@@ -457,9 +641,42 @@ namespace LegoPuzzle.Runtime
 
         private bool ColorsMatch(Color a, Color b)
         {
-            return Mathf.Abs(a.r - b.r) < 0.15f &&
-                   Mathf.Abs(a.g - b.g) < 0.15f &&
-                   Mathf.Abs(a.b - b.b) < 0.15f;
+            return Mathf.Abs(a.r - b.r) < 0.2f &&
+                   Mathf.Abs(a.g - b.g) < 0.2f &&
+                   Mathf.Abs(a.b - b.b) < 0.2f;
+        }
+
+        public void PlayPieceStepSound()
+        {
+            if (Time.time - lastStepSoundTime < 0.04f) return;
+            lastStepSoundTime = Time.time;
+
+            AudioClip clip = pieceStepSound != null ? pieceStepSound : palette?.pieceStepSound;
+            if (clip != null && audioSource != null)
+            {
+                audioSource.pitch = UnityEngine.Random.Range(0.95f, 1.05f);
+                audioSource.PlayOneShot(clip, 1f);
+            }
+        }
+
+        public void PlayPieceExitSound()
+        {
+            AudioClip clip = pieceExitSound != null ? pieceExitSound : palette?.pieceExitSound;
+            if (clip != null && audioSource != null)
+            {
+                audioSource.pitch = UnityEngine.Random.Range(0.98f, 1.02f);
+                audioSource.PlayOneShot(clip, 1f);
+            }
+        }
+
+        public void PlayLevelWonSound()
+        {
+            AudioClip clip = levelWonSound != null ? levelWonSound : palette?.levelWonSound;
+            if (clip != null && audioSource != null)
+            {
+                audioSource.pitch = 1f;
+                audioSource.PlayOneShot(clip, 1f);
+            }
         }
 
         private void HandlePieceExited(LegoPieceView piece)
@@ -469,6 +686,7 @@ namespace LegoPuzzle.Runtime
             if (piecesExited >= requiredPiecesToWin)
             {
                 IsGameplayActive = false;
+                PlayLevelWonSound();
                 OnLevelWon?.Invoke();
                 Debug.Log("<color=green>Рівень пройдено! Перемога!</color>");
             }

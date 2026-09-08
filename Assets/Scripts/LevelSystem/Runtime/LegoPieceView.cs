@@ -381,6 +381,13 @@ namespace LegoPuzzle.Runtime
                     CurrentOrigin = candX;
                 }
             }
+
+            // Миттєвий вихід у ворота під час перетягування (навіть якщо палець ще не відпущено)
+            if (!isExiting && levelLoader.CheckIfPieceExits(this, CurrentOrigin, out ExitDirection exitDir))
+            {
+                isDragging = false;
+                StartCoroutine(PlayExitAnimation(exitDir));
+            }
         }
 
         public void OnEndDrag(PointerEventData eventData)
@@ -398,11 +405,17 @@ namespace LegoPuzzle.Runtime
                 CurrentOrigin = targetOrigin;
             }
 
+            if (levelLoader != null)
+            {
+                levelLoader.PlayPieceStepSound();
+            }
+
             StartCoroutine(SnapToGridRoutine(CurrentOrigin));
         }
 
         private IEnumerator SnapToGridRoutine(Vector2Int targetOrigin)
         {
+            if (isExiting) yield break;
             isSnapping = true;
 
             Vector3 startPos = transform.localPosition;
@@ -411,6 +424,7 @@ namespace LegoPuzzle.Runtime
             float elapsed = 0f;
             while (elapsed < snapDuration)
             {
+                if (isExiting) yield break;
                 elapsed += Time.deltaTime;
                 float t = Mathf.SmoothStep(0f, 1f, elapsed / snapDuration);
                 transform.localPosition = Vector3.Lerp(startPos, endPos, t);
@@ -421,7 +435,7 @@ namespace LegoPuzzle.Runtime
             CurrentOrigin = targetOrigin;
             isSnapping = false;
 
-            if (levelLoader.CheckIfPieceExits(this, CurrentOrigin, out ExitDirection exitDir))
+            if (!isExiting && levelLoader.CheckIfPieceExits(this, CurrentOrigin, out ExitDirection exitDir))
             {
                 StartCoroutine(PlayExitAnimation(exitDir));
             }
@@ -431,14 +445,20 @@ namespace LegoPuzzle.Runtime
         {
             isExiting = true;
             isDragging = false;
+            isSnapping = false;
+
+            if (levelLoader != null)
+            {
+                levelLoader.PlayPieceExitSound();
+            }
 
             Vector3 exitOffset = direction switch
             {
-                ExitDirection.Up => Vector3.forward * 8f,
-                ExitDirection.Down => Vector3.back * 8f,
-                ExitDirection.Left => Vector3.left * 8f,
-                ExitDirection.Right => Vector3.right * 8f,
-                _ => Vector3.forward * 8f
+                ExitDirection.Up => Vector3.forward * 10f,
+                ExitDirection.Down => Vector3.back * 10f,
+                ExitDirection.Left => Vector3.left * 10f,
+                ExitDirection.Right => Vector3.right * 10f,
+                _ => Vector3.forward * 10f
             };
 
             Vector3 startPos = transform.localPosition;

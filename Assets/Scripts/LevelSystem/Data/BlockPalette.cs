@@ -41,5 +41,15 @@ namespace LegoPuzzle.Data
 
         [Tooltip("Спрайт стрілочок обмеження ↕")]
         public Sprite verticalArrowSprite;
+
+        [Header("Звукові ефекти (SFX)")]
+        [Tooltip("Звук кроку/зміни клітинки блоком (клацання/шарудіння)")]
+        public AudioClip pieceStepSound;
+
+        [Tooltip("Звук вильоту блоку у ворота")]
+        public AudioClip pieceExitSound;
+
+        [Tooltip("Звук перемоги на рівні")]
+        public AudioClip levelWonSound;
     }
 }

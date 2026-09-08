@@ -12,8 +12,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: b36525e2f7b1b214f9da528b8391a4e7, type: 3}
   m_Name: MainBlockPalette
   m_EditorClassIdentifier: 
-  walkableTilePrefab: {fileID: 0}
-  obstacleTilePrefab: {fileID: 0}
+  walkableTilePrefab: {fileID: 626318057273164743, guid: 29f3e0b8077e90741ab9bf752365ce89, type: 3}
+  obstacleTilePrefab: {fileID: 610682394342819938, guid: c1434f509c3d0504ab9e4f32df1c0c9c, type: 3}
   exitGatePrefab: {fileID: 6994929586925869076, guid: 6c2696c17156d084aae4087c62c8d1ce, type: 3}
   walkableTileMaterial: {fileID: 2100000, guid: df52f4d0325777d49bbe6e566536e284, type: 2}
   obstacleTileMaterial: {fileID: 2100000, guid: 71e8951740b2a224480948e4515f6e2f, type: 2}
@@ -23,3 +23,6 @@ MonoBehaviour:
   legoBaseMaterial: {fileID: 0}
   horizontalArrowSprite: {fileID: 0}
   verticalArrowSprite: {fileID: 0}
+  pieceStepSound: {fileID: 8300000, guid: 6922dbf011f296245bed3896a57178a6, type: 3}
+  pieceExitSound: {fileID: 8300000, guid: f0e12004c2b918540b2f42b57a328654, type: 3}
+  levelWonSound: {fileID: 0}
