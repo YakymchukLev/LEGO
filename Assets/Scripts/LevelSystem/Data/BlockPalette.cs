@@ -9,11 +9,20 @@ namespace LegoPuzzle.Data
         [Tooltip("Префаб звичайного ігрового тайлу підлоги")]
         public GameObject walkableTilePrefab;
 
-        [Tooltip("Префаб дерев'яного блоку-перешкоди")]
+        [Tooltip("Префаб дерев'яного блоку-перешкоди (повна клітинка 1x1)")]
         public GameObject obstacleTilePrefab;
 
-        [Tooltip("Префаб воріт виходу (зі стрілочкою)")]
+        [Tooltip("Префаб перешкоди в половину ширини (Half Obstacle, опціонально)")]
+        public GameObject halfObstaclePrefab;
+
+        [Tooltip("Префаб четвертинки перешкоди для кутків (Quarter Obstacle, опціонально)")]
+        public GameObject quarterObstaclePrefab;
+
+        [Tooltip("Префаб воріт виходу (зі стрілочкою, повна клітинка 1x1)")]
         public GameObject exitGatePrefab;
+
+        [Tooltip("Префаб напів-воріт виходу (половина ширини, опціонально)")]
+        public GameObject halfExitGatePrefab;
 
         [Header("Матеріали елементів сітки (з текстурами)")]
         [Tooltip("Матеріал з текстурою для звичайного тайлу підлоги (наприклад, дерево M_Wood3)")]
@@ -43,6 +52,12 @@ namespace LegoPuzzle.Data
         public Sprite verticalArrowSprite;
 
         [Header("Звукові ефекти (SFX)")]
+        [Tooltip("Перший звук переміщення деталі при утримуванні (чергується)")]
+        public AudioClip pieceMoveSound1;
+
+        [Tooltip("Другий звук переміщення деталі при утримуванні (чергується)")]
+        public AudioClip pieceMoveSound2;
+
         [Tooltip("Звук кроку/зміни клітинки блоком (клацання/шарудіння)")]
         public AudioClip pieceStepSound;
 

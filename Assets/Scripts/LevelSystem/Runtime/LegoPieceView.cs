@@ -12,6 +12,7 @@ namespace LegoPuzzle.Runtime
         [Header("Дані деталі")]
         public LegoPieceData PieceData { get; private set; }
         public Vector2Int CurrentOrigin { get; private set; }
+        public void SetCurrentOriginDirect(Vector2Int origin) => CurrentOrigin = origin;
 
         [Header("Посилання")]
         [SerializeField] private GameObject modelInstance;
@@ -142,8 +143,8 @@ namespace LegoPuzzle.Runtime
             var renderers = model.GetComponentsInChildren<Renderer>();
             if (renderers.Length == 0) return;
 
-            // 1. Поворот моделі відповідно до rotationSteps
-            float angle = -PieceData.rotationSteps * 90f;
+            // 1. Поворот моделі відповідно до rotationSteps (за годинниковою стрілкою +90° за крок)
+            float angle = PieceData.rotationSteps * 90f;
             model.transform.localRotation = Quaternion.Euler(0f, angle, 0f);
             model.transform.localPosition = Vector3.zero;
 
@@ -272,38 +273,64 @@ namespace LegoPuzzle.Runtime
         public void OnPointerDown(PointerEventData eventData)
         {
             if (isExiting || isSnapping || levelLoader == null || !levelLoader.IsGameplayActive) return;
+
+            // Приховуємо активну підказку, щойно гравець торкається деталі
+            HintIndicatorEffect.Dismiss();
+
+            // Перехоплення кліку у режимі прицілювання бустера "Молоток"
+            if (HammerBooster.IsTargeting)
+            {
+                HammerBooster.SelectTarget(this);
+                return;
+            }
+
             if (PieceData.moveRestriction == MoveRestriction.Locked) return;
 
             Vector3 touchWorld = GetWorldPointerPosition(eventData);
-            pointerOffset = transform.localPosition - touchWorld;
+            Vector3 touchLocal = transform.parent != null ? transform.parent.InverseTransformPoint(touchWorld) : touchWorld;
+            pointerOffset = transform.localPosition - touchLocal;
             lastValidGridPos = CurrentOrigin;
         }
 
         public void OnBeginDrag(PointerEventData eventData)
         {
+            if (HammerBooster.IsTargeting) return;
             if (isExiting || isSnapping || levelLoader == null || !levelLoader.IsGameplayActive) return;
             if (PieceData.moveRestriction == MoveRestriction.Locked) return;
 
             isDragging = true;
             Vector3 touchWorld = GetWorldPointerPosition(eventData);
-            pointerOffset = transform.localPosition - touchWorld;
+            Vector3 touchLocal = transform.parent != null ? transform.parent.InverseTransformPoint(touchWorld) : touchWorld;
+            pointerOffset = transform.localPosition - touchLocal;
             lastValidGridPos = CurrentOrigin;
         }
 
         public void OnDrag(PointerEventData eventData)
         {
+            if (levelLoader != null && !levelLoader.IsGameplayActive)
+            {
+                if (isDragging)
+                {
+                    isDragging = false;
+                    StartCoroutine(SnapToGridRoutine(CurrentOrigin));
+                }
+                return;
+            }
+
             if (!isDragging && !isSnapping && !isExiting)
             {
                 isDragging = true;
                 Vector3 touchWorld = GetWorldPointerPosition(eventData);
-                pointerOffset = transform.localPosition - touchWorld;
+                Vector3 touchLocal = transform.parent != null ? transform.parent.InverseTransformPoint(touchWorld) : touchWorld;
+                pointerOffset = transform.localPosition - touchLocal;
                 lastValidGridPos = CurrentOrigin;
             }
 
             if (!isDragging || isExiting) return;
 
             Vector3 touchWorldPos = GetWorldPointerPosition(eventData);
-            Vector3 desiredPos = touchWorldPos + pointerOffset;
+            Vector3 touchLocalPos = transform.parent != null ? transform.parent.InverseTransformPoint(touchWorldPos) : touchWorldPos;
+            Vector3 desiredPos = touchLocalPos + pointerOffset;
 
             // 1. Отримуємо актуальний діапазон вільних клітинок від поточної зафіксованої позиції
             int minX = 0, maxX = 0, minZ = 0, maxZ = 0;
@@ -353,6 +380,7 @@ namespace LegoPuzzle.Runtime
                 {
                     lastValidGridPos = candX;
                     CurrentOrigin = candX;
+                    if (levelLoader != null) levelLoader.PlayPieceMoveSound();
                 }
 
                 // Перевіряємо крок по осі Z
@@ -361,6 +389,7 @@ namespace LegoPuzzle.Runtime
                 {
                     lastValidGridPos = candZ;
                     CurrentOrigin = candZ;
+                    if (levelLoader != null) levelLoader.PlayPieceMoveSound();
                 }
             }
             else
@@ -371,6 +400,7 @@ namespace LegoPuzzle.Runtime
                 {
                     lastValidGridPos = candZ;
                     CurrentOrigin = candZ;
+                    if (levelLoader != null) levelLoader.PlayPieceMoveSound();
                 }
 
                 // Перевіряємо крок по осі X
@@ -379,6 +409,7 @@ namespace LegoPuzzle.Runtime
                 {
                     lastValidGridPos = candX;
                     CurrentOrigin = candX;
+                    if (levelLoader != null) levelLoader.PlayPieceMoveSound();
                 }
             }
 
@@ -425,7 +456,8 @@ namespace LegoPuzzle.Runtime
             while (elapsed < snapDuration)
             {
                 if (isExiting) yield break;
-                elapsed += Time.deltaTime;
+                float dt = Time.timeScale > 0.001f ? Time.deltaTime : Time.unscaledDeltaTime;
+                elapsed += dt;
                 float t = Mathf.SmoothStep(0f, 1f, elapsed / snapDuration);
                 transform.localPosition = Vector3.Lerp(startPos, endPos, t);
                 yield return null;
@@ -492,6 +524,93 @@ namespace LegoPuzzle.Runtime
             }
 
             return transform.position;
+        }
+
+        /// <summary>
+        /// Створює соковитий 3D-вибух уламків цеглинок LEGO при ударі молотком.
+        /// </summary>
+        public void SpawnShatterDebris()
+        {
+            Color pieceColor = PieceData != null ? PieceData.GetColor() : Color.red;
+            Vector3 center = transform.position;
+
+            GameObject debrisRoot = new GameObject("LegoShatterDebris");
+            debrisRoot.transform.position = center;
+
+            int chunkCount = Mathf.Clamp(currentOffsets != null ? currentOffsets.Count * 4 : 8, 8, 18);
+            for (int i = 0; i < chunkCount; i++)
+            {
+                GameObject chunk = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                chunk.transform.SetParent(debrisRoot.transform);
+
+                Vector3 spawnOffset = new Vector3(
+                    UnityEngine.Random.Range(-0.4f, 0.4f) * cellSize,
+                    UnityEngine.Random.Range(0.05f, 0.45f),
+                    UnityEngine.Random.Range(-0.4f, 0.4f) * cellSize
+                );
+                chunk.transform.position = center + spawnOffset;
+
+                float size = UnityEngine.Random.Range(0.14f, 0.26f) * cellSize;
+                chunk.transform.localScale = new Vector3(size, size * 0.75f, size);
+
+                var r = chunk.GetComponent<Renderer>();
+                if (r != null)
+                {
+                    r.material.color = Color.Lerp(pieceColor, Color.white, UnityEngine.Random.Range(0f, 0.3f));
+                }
+
+                var col = chunk.GetComponent<Collider>();
+                if (col != null) Destroy(col);
+
+                Vector3 blastDir = (spawnOffset.normalized + Vector3.up * 1.8f).normalized;
+                Vector3 initialVel = blastDir * UnityEngine.Random.Range(4f, 7.5f) + UnityEngine.Random.insideUnitSphere * 1.5f;
+                Vector3 rotSpeed = UnityEngine.Random.insideUnitSphere * 360f;
+
+                debrisRoot.AddComponent<PieceDebrisMotion>().Launch(chunk, initialVel, rotSpeed, levelLoader != null ? levelLoader.BoardBaseY : 0f);
+            }
+
+            Destroy(debrisRoot, 1.4f);
+        }
+
+        private class PieceDebrisMotion : MonoBehaviour
+        {
+            public void Launch(GameObject target, Vector3 velocity, Vector3 rotSpeed, float floorY)
+            {
+                StartCoroutine(MotionRoutine(target, velocity, rotSpeed, floorY));
+            }
+
+            private IEnumerator MotionRoutine(GameObject target, Vector3 velocity, Vector3 rotSpeed, float floorY)
+            {
+                float lifetime = 1.2f;
+                float elapsed = 0f;
+                Vector3 pos = target != null ? target.transform.position : Vector3.zero;
+
+                while (elapsed < lifetime && target != null)
+                {
+                    elapsed += Time.deltaTime;
+                    velocity.y -= 16f * Time.deltaTime;
+                    pos += velocity * Time.deltaTime;
+
+                    if (pos.y < floorY + 0.05f)
+                    {
+                        pos.y = floorY + 0.05f;
+                        velocity.y = -velocity.y * 0.35f;
+                        velocity.x *= 0.6f;
+                        velocity.z *= 0.6f;
+                    }
+
+                    target.transform.position = pos;
+                    target.transform.Rotate(rotSpeed * Time.deltaTime);
+
+                    if (elapsed > 0.8f)
+                    {
+                        float shrink = 1f - ((elapsed - 0.8f) / 0.4f);
+                        target.transform.localScale = target.transform.localScale * Mathf.Clamp01(shrink);
+                    }
+
+                    yield return null;
+                }
+            }
         }
     }
 }

@@ -4,6 +4,7 @@ using System.IO;
 using UnityEditor;
 using UnityEngine;
 using LegoPuzzle.Data;
+using LegoPuzzle.Runtime;
 
 namespace LegoPuzzle.Editor
 {
@@ -21,6 +22,7 @@ namespace LegoPuzzle.Editor
         private CellType brushCellType = CellType.Walkable;
         private ExitDirection brushExitDir = ExitDirection.Up;
         private BlockColorType brushColorType = BlockColorType.Yellow;
+        private int brushGateAlignment = 1; // 1 = Ліва/Верхня, 2 = Права/Нижня, 0 = По центру
 
         // Налаштування для розміщення фігури LEGO
         private LegoShapeDefinition selectedShape;
@@ -68,11 +70,72 @@ namespace LegoPuzzle.Editor
             EditorGUILayout.BeginHorizontal();
             targetLevel = (LevelData)EditorGUILayout.ObjectField("Рівень (Asset)", targetLevel, typeof(LevelData), false);
 
-            if (GUILayout.Button("Новий рівень", GUILayout.Width(110)))
+            if (GUILayout.Button("Новий рівень", GUILayout.Width(100)))
             {
                 CreateNewLevelAsset();
             }
+
+            GUI.backgroundColor = new Color(0.6f, 1f, 0.6f);
+            if (GUILayout.Button("Зберегти", GUILayout.Width(90)))
+            {
+                SaveCurrentLevel();
+            }
+            GUI.backgroundColor = Color.white;
+
             EditorGUILayout.EndHorizontal();
+
+            if (targetLevel != null)
+            {
+                EditorGUILayout.BeginHorizontal();
+
+                GUI.backgroundColor = new Color(0.4f, 0.8f, 1f);
+                if (GUILayout.Button("▶ Тестувати цей рівень у грі", GUILayout.Height(24)))
+                {
+                    TestCurrentLevelInGame();
+                }
+
+                GUI.backgroundColor = new Color(1f, 0.85f, 0.4f);
+                if (GUILayout.Button("🔄 Скинути прогрес (на Рівень 1)", GUILayout.Height(24)))
+                {
+                    PlayerPrefs.DeleteKey("LEGO_CurrentLevelIndex");
+                    PlayerPrefs.Save();
+                    Debug.Log("<color=yellow>LevelEditor: Прогрес гри успішно скинуто на Рівень 1!</color>");
+                }
+                GUI.backgroundColor = Color.white;
+
+                EditorGUILayout.EndHorizontal();
+            }
+        }
+
+        private void TestCurrentLevelInGame()
+        {
+            if (targetLevel == null) return;
+
+            SaveCurrentLevel();
+
+            var loader = FindAnyObjectByType<LevelLoader>();
+            if (loader != null)
+            {
+                if (Application.isPlaying)
+                {
+                    loader.LoadLevel(targetLevel);
+                }
+                else
+                {
+                    UnityEditor.Undo.RecordObject(loader, "Set Test Level");
+                    var so = new UnityEditor.SerializedObject(loader);
+                    so.FindProperty("testLevelData").objectReferenceValue = targetLevel;
+                    so.FindProperty("overrideWithTestLevel").boolValue = true;
+                    so.ApplyModifiedProperties();
+                    UnityEditor.EditorUtility.SetDirty(loader);
+                    UnityEditor.SceneManagement.EditorSceneManager.MarkSceneDirty(loader.gameObject.scene);
+                }
+                Debug.Log($"<color=green>LevelEditor: Рівень '{targetLevel.name}' призначено як активний тестовий у LevelLoader!</color>");
+            }
+            else
+            {
+                Debug.LogWarning("LevelEditor: На поточній сцені не знайдено LevelLoader.");
+            }
         }
 
         private void DrawSettingsPanel()
@@ -97,6 +160,7 @@ namespace LegoPuzzle.Editor
             if (EditorGUI.EndChangeCheck())
             {
                 EditorUtility.SetDirty(targetLevel);
+                AssetDatabase.SaveAssets();
             }
         }
 
@@ -115,6 +179,69 @@ namespace LegoPuzzle.Editor
                     brushExitDir = (ExitDirection)EditorGUILayout.EnumPopup("Напрямок виходу", brushExitDir);
                     brushColorType = (BlockColorType)EditorGUILayout.EnumPopup("Колір воріт", brushColorType);
                 }
+                else if (brushCellType == CellType.HalfExitGate)
+                {
+                    brushExitDir = (ExitDirection)EditorGUILayout.EnumPopup("Напрямок виходу (Стрілка)", brushExitDir);
+                    brushColorType = (BlockColorType)EditorGUILayout.EnumPopup("Колір воріт", brushColorType);
+
+                    string[] halfOptions = new string[]
+                    {
+                        "Нижня половина (Horizontal Bottom  ▄) — для нижньої стіни",
+                        "Верхня половина (Horizontal Top  ▀) — для верхньої стіни",
+                        "Ліва половина (Vertical Left  ▌) — для лівої стіни",
+                        "Права половина (Vertical Right  ▐) — для правої стіни"
+                    };
+
+                    int currentIdx = brushGateAlignment switch
+                    {
+                        1 => 0, // Bottom ▄
+                        0 => 1, // Top ▀
+                        2 => 2, // Left ▌
+                        3 => 3, // Right ▐
+                        _ => 0
+                    };
+
+                    int newIdx = EditorGUILayout.Popup("Положення половинки у клітинці", currentIdx, halfOptions);
+                    brushGateAlignment = newIdx switch
+                    {
+                        0 => 1, // Bottom ▄
+                        1 => 0, // Top ▀
+                        2 => 2, // Left ▌
+                        3 => 3, // Right ▐
+                        _ => 1
+                    };
+                }
+                else if (brushCellType == CellType.HalfObstacle)
+                {
+                    brushExitDir = (ExitDirection)EditorGUILayout.EnumPopup("Напрямок половинки", brushExitDir);
+                }
+                else if (brushCellType == CellType.QuarterObstacle)
+                {
+                    string[] cornerOptions = new string[]
+                    {
+                        "Вгору-Вліво (Top-Left)  ▘",
+                        "Вгору-Вправо (Top-Right)  ▝",
+                        "Вниз-Вліво (Bottom-Left)  ▖",
+                        "Вниз-Вправо (Bottom-Right)  ▗"
+                    };
+                    int currentCornerIndex = brushExitDir switch
+                    {
+                        ExitDirection.Left => 0,
+                        ExitDirection.Up => 1,
+                        ExitDirection.Down => 2,
+                        ExitDirection.Right => 3,
+                        _ => 0
+                    };
+                    int newCornerIndex = EditorGUILayout.Popup("Куток для заповнення", currentCornerIndex, cornerOptions);
+                    brushExitDir = newCornerIndex switch
+                    {
+                        0 => ExitDirection.Left,
+                        1 => ExitDirection.Up,
+                        2 => ExitDirection.Down,
+                        3 => ExitDirection.Right,
+                        _ => ExitDirection.Left
+                    };
+                }
             }
             else if (currentMode == PaintMode.PlacePiece)
             {
@@ -124,7 +251,7 @@ namespace LegoPuzzle.Editor
                 selectedShape = (LegoShapeDefinition)EditorGUILayout.ObjectField("Обрана форма", selectedShape, typeof(LegoShapeDefinition), false);
                 pieceColorType = (BlockColorType)EditorGUILayout.EnumPopup("Колір деталі", pieceColorType);
                 pieceRestriction = (MoveRestriction)EditorGUILayout.EnumPopup("Обмеження руху", pieceRestriction);
-                pieceRotation = EditorGUILayout.IntSlider("Поворот (0-3)", pieceRotation, 0, 3);
+                pieceRotation = EditorGUILayout.IntSlider($"Поворот ({pieceRotation * 90}°)", pieceRotation, 0, 3);
             }
 
             EditorGUILayout.BeginHorizontal();
@@ -216,7 +343,10 @@ namespace LegoPuzzle.Editor
                         {
                             CellType.Walkable => new Color(0.95f, 0.90f, 0.55f),
                             CellType.Obstacle => new Color(0.55f, 0.35f, 0.20f),
+                            CellType.HalfObstacle => new Color(0.68f, 0.42f, 0.22f),
+                            CellType.QuarterObstacle => new Color(0.72f, 0.45f, 0.24f),
                             CellType.ExitGate => cell.GetEffectiveColor(),
+                            CellType.HalfExitGate => cell.GetEffectiveColor(),
                             _ => new Color(0.2f, 0.2f, 0.2f, 0.3f)
                         };
                     }
@@ -253,6 +383,22 @@ namespace LegoPuzzle.Editor
             return cell.cellType switch
             {
                 CellType.Obstacle => "■",
+                CellType.HalfObstacle => cell.exitDirection switch
+                {
+                    ExitDirection.Up => "▀",
+                    ExitDirection.Down => "▄",
+                    ExitDirection.Left => "▌",
+                    ExitDirection.Right => "▐",
+                    _ => "■"
+                },
+                CellType.QuarterObstacle => cell.exitDirection switch
+                {
+                    ExitDirection.Left => "▘",  // Top-Left
+                    ExitDirection.Up => "▝",    // Top-Right
+                    ExitDirection.Down => "▖",  // Bottom-Left
+                    ExitDirection.Right => "▗", // Bottom-Right
+                    _ => "▘"
+                },
                 CellType.ExitGate => (cell.gateColorType == BlockColorType.Universal ? "★" : "") + cell.exitDirection switch
                 {
                     ExitDirection.Up => "▲",
@@ -261,6 +407,21 @@ namespace LegoPuzzle.Editor
                     ExitDirection.Right => "▶",
                     _ => "O"
                 },
+                CellType.HalfExitGate => (cell.gateColorType == BlockColorType.Universal ? "★" : "") + (cell.exitDirection switch
+                {
+                    ExitDirection.Up => "▲",
+                    ExitDirection.Down => "▼",
+                    ExitDirection.Left => "◀",
+                    ExitDirection.Right => "▶",
+                    _ => ""
+                }) + (cell.gateAlignment switch
+                {
+                    0 => "▀", // Top
+                    1 => "▄", // Bottom
+                    2 => "▌", // Left
+                    3 => "▐", // Right
+                    _ => "½"
+                }),
                 CellType.Walkable => "+",
                 _ => ""
             };
@@ -275,7 +436,8 @@ namespace LegoPuzzle.Editor
                 CellData newCell = new CellData(new Vector2Int(x, y), brushCellType)
                 {
                     exitDirection = brushExitDir,
-                    gateColorType = brushColorType
+                    gateColorType = brushColorType,
+                    gateAlignment = brushGateAlignment
                 };
                 targetLevel.SetCell(x, y, newCell);
             }
@@ -304,6 +466,7 @@ namespace LegoPuzzle.Editor
             }
 
             EditorUtility.SetDirty(targetLevel);
+            AssetDatabase.SaveAssets();
         }
 
         private LegoPieceData GetPieceAt(int x, int y)
@@ -330,6 +493,17 @@ namespace LegoPuzzle.Editor
                 }
             }
             EditorUtility.SetDirty(targetLevel);
+            AssetDatabase.SaveAssets();
+        }
+
+        private void SaveCurrentLevel()
+        {
+            if (targetLevel != null)
+            {
+                EditorUtility.SetDirty(targetLevel);
+                AssetDatabase.SaveAssets();
+                Debug.Log($"<color=green>Рівень '{targetLevel.name}' успішно збережено на диск!</color>");
+            }
         }
 
         private void CreateNewLevelAsset()
@@ -345,7 +519,7 @@ namespace LegoPuzzle.Editor
 
             LevelData newLevel = ScriptableObject.CreateInstance<LevelData>();
             newLevel.levelIndex = count;
-            newLevel.levelTitle = $"Рівень {count}";
+            newLevel.levelTitle = $"Level {count}";
             newLevel.EnsureGridCapacity();
 
             AssetDatabase.CreateAsset(newLevel, assetPath);

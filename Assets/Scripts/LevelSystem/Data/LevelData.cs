@@ -11,7 +11,7 @@ namespace LegoPuzzle.Data
         public int levelIndex = 1;
 
         [Tooltip("Назва або опис рівня")]
-        public string levelTitle = "Рівень 1";
+        public string levelTitle = "Level 1";
 
         [Header("Умови гри")]
         [Tooltip("Ліміт часу в секундах (0 = без ліміту)")]
@@ -71,21 +71,28 @@ namespace LegoPuzzle.Data
 
             if (cells.Count != targetCount)
             {
+                Dictionary<Vector2Int, CellData> existingMap = new Dictionary<Vector2Int, CellData>();
+                for (int i = 0; i < cells.Count; i++)
+                {
+                    CellData cell = cells[i];
+                    existingMap[cell.position] = cell;
+                }
+
                 List<CellData> newCells = new List<CellData>(targetCount);
                 for (int y = 0; y < gridHeight; y++)
                 {
                     for (int x = 0; x < gridWidth; x++)
                     {
-                        // Спробувати зберегти старе значення, якщо було
-                        int oldIndex = y * gridWidth + x;
-                        if (oldIndex < cells.Count && cells[oldIndex].position == new Vector2Int(x, y))
+                        Vector2Int pos = new Vector2Int(x, y);
+                        if (existingMap.TryGetValue(pos, out CellData existingCell))
                         {
-                            newCells.Add(cells[oldIndex]);
+                            existingCell.position = pos;
+                            newCells.Add(existingCell);
                         }
                         else
                         {
                             // За замовчуванням створюємо Walkable ігровий тайл
-                            newCells.Add(new CellData(new Vector2Int(x, y), CellType.Walkable));
+                            newCells.Add(new CellData(pos, CellType.Walkable));
                         }
                     }
                 }

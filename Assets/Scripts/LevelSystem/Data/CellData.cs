@@ -5,10 +5,13 @@ namespace LegoPuzzle.Data
 {
     public enum CellType
     {
-        Empty = 0,       // Поза полем / порожня ділянка
-        Walkable = 1,    // Звичайний ігровий тайл (жовтий)
-        Obstacle = 2,    // Дерев'яна нерухома перешкода
-        ExitGate = 3     // Ворота виходу для блоків
+        Empty = 0,        // Поза полем / порожня ділянка
+        Walkable = 1,     // Звичайний ігровий тайл (жовтий)
+        Obstacle = 2,     // Дерев'яна нерухома перешкода (повна 1x1)
+        ExitGate = 3,        // Ворота виходу для блоків (повні 1x1)
+        HalfObstacle = 4,    // Перешкода в половину ширини (повертається у 4 напрямках: Up, Down, Left, Right)
+        QuarterObstacle = 5, // Четвертина перешкоди для заповнення кутків (Top-Left, Top-Right, Bottom-Right, Bottom-Left)
+        HalfExitGate = 6     // Напів-ворота виходу (половина ширини, повертаються у 4 напрямках)
     }
 
     public enum ExitDirection
@@ -49,6 +52,8 @@ namespace LegoPuzzle.Data
         public ExitDirection exitDirection;
         public BlockColorType gateColorType;
         public Color customGateColor;
+        [Tooltip("0 = По центру, 1 = Ліва/Верхня половина, 2 = Права/Нижня половина")]
+        public int gateAlignment;
 
         public CellData(Vector2Int position, CellType cellType)
         {
@@ -57,6 +62,7 @@ namespace LegoPuzzle.Data
             this.exitDirection = ExitDirection.Up;
             this.gateColorType = BlockColorType.Universal;
             this.customGateColor = Color.white;
+            this.gateAlignment = 1;
         }
 
         public Color GetEffectiveColor()

@@ -2,41 +2,103 @@ using System.Collections;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
+using LegoPuzzle.Runtime;
 
 public class MenuButtonController : MonoBehaviour
 {
     [Header("Scene Settings")]
-    [Tooltip("Назва сцени для завантаження")]
+    [Tooltip("Scene name to load")]
     [SerializeField] private string defaultSceneName = "GameScene";
 
-    [Header("Loading UI (Опціонально)")]
-    [Tooltip("Екран завантаження")]
+    [Header("Loading UI (Optional)")]
+    [Tooltip("Loading screen")]
     [SerializeField] private GameObject loadingScreen;
 
-    [Tooltip("Слайдер прогресу")]
+    [Tooltip("Progress slider")]
     [SerializeField] private Slider progressBar;
 
-    /// <summary>
-    /// Запуск асинхронного завантаження сцени за замовчуванням (зручно для Unity UI Button)
-    /// </summary>
+    private const string PREFS_LEVEL_INDEX = "LEGO_CurrentLevelIndex";
+
+    public static int GetSavedLevelIndex()
+    {
+        return PlayerPrefs.GetInt(PREFS_LEVEL_INDEX, 0);
+    }
+
+    [ContextMenu("Reset saved progress (to Level 1)")]
+    public void ResetSavedLevelProgress()
+    {
+        PlayerPrefs.DeleteKey(PREFS_LEVEL_INDEX);
+        PlayerPrefs.Save();
+        Debug.Log("<color=yellow>MenuButtonController: Progress reset! Next game will start from Level 1.</color>");
+    }
+
+    public void LoadMenu()
+    {
+        Time.timeScale = 1f;
+        SceneManager.LoadScene(0);
+    }
+
+    public void LoadGame()
+    {
+        if (HeartManager.Instance != null && !HeartManager.Instance.HasHearts())
+        {
+            Debug.LogWarning("<color=red>MenuButtonController: Cannot start game, player has 0 hearts!</color>");
+            MenuHeartsUI.TriggerNoHeartsFeedback();
+            return;
+        }
+
+        Time.timeScale = 1f;
+        SceneManager.LoadScene(1);
+    }
+
+    public void LoadScene(string sceneName)
+    {
+        Time.timeScale = 1f;
+        SceneManager.LoadScene(sceneName);
+    }
+
+    public void LoadScene(int sceneIndex)
+    {
+        Time.timeScale = 1f;
+        SceneManager.LoadScene(sceneIndex);
+    }
+
     public void StartGame()
     {
+        if (HeartManager.Instance != null && !HeartManager.Instance.HasHearts())
+        {
+            Debug.LogWarning("<color=red>MenuButtonController: Cannot start game, player has 0 hearts!</color>");
+            MenuHeartsUI.TriggerNoHeartsFeedback();
+            return;
+        }
+
+        Time.timeScale = 1f;
         StartCoroutine(LoadSceneAsyncRoutine(defaultSceneName));
     }
 
-    /// <summary>
-    /// Запуск завантаження сцени за її назвою
-    /// </summary>
     public void StartGame(string sceneName)
     {
+        if (HeartManager.Instance != null && !HeartManager.Instance.HasHearts())
+        {
+            Debug.LogWarning("<color=red>MenuButtonController: Cannot start game, player has 0 hearts!</color>");
+            MenuHeartsUI.TriggerNoHeartsFeedback();
+            return;
+        }
+
+        Time.timeScale = 1f;
         StartCoroutine(LoadSceneAsyncRoutine(sceneName));
     }
 
-    /// <summary>
-    /// Запуск завантаження сцени за індексом у Build Settings
-    /// </summary>
     public void StartGame(int sceneIndex)
     {
+        if (HeartManager.Instance != null && !HeartManager.Instance.HasHearts())
+        {
+            Debug.LogWarning("<color=red>MenuButtonController: Cannot start game, player has 0 hearts!</color>");
+            MenuHeartsUI.TriggerNoHeartsFeedback();
+            return;
+        }
+
+        Time.timeScale = 1f;
         StartCoroutine(LoadSceneAsyncRoutine(sceneIndex));
     }
 
@@ -51,7 +113,6 @@ public class MenuButtonController : MonoBehaviour
 
         while (!operation.isDone)
         {
-            // operation.progress йде від 0 до 0.9 під час завантаження
             float progress = Mathf.Clamp01(operation.progress / 0.9f);
 
             if (progressBar != null)
