@@ -284,12 +284,15 @@ namespace LegoPuzzle.Runtime
                 return;
             }
 
+            if (BoosterTutorialManager.IsBoosterTutorialActive) return;
+
             if (PieceData.moveRestriction == MoveRestriction.Locked) return;
 
             Vector3 touchWorld = GetWorldPointerPosition(eventData);
             Vector3 touchLocal = transform.parent != null ? transform.parent.InverseTransformPoint(touchWorld) : touchWorld;
             pointerOffset = transform.localPosition - touchLocal;
             lastValidGridPos = CurrentOrigin;
+            dragStartLocalPosition = transform.localPosition;
         }
 
         public void OnBeginDrag(PointerEventData eventData)
@@ -297,16 +300,28 @@ namespace LegoPuzzle.Runtime
             if (HammerBooster.IsTargeting) return;
             if (isExiting || isSnapping || levelLoader == null || !levelLoader.IsGameplayActive) return;
             if (PieceData.moveRestriction == MoveRestriction.Locked) return;
+            if (BoosterTutorialManager.IsBoosterTutorialActive) return;
 
             isDragging = true;
             Vector3 touchWorld = GetWorldPointerPosition(eventData);
             Vector3 touchLocal = transform.parent != null ? transform.parent.InverseTransformPoint(touchWorld) : touchWorld;
             pointerOffset = transform.localPosition - touchLocal;
             lastValidGridPos = CurrentOrigin;
+            dragStartLocalPosition = transform.localPosition;
         }
 
         public void OnDrag(PointerEventData eventData)
         {
+            if (BoosterTutorialManager.IsBoosterTutorialActive || HammerBooster.IsTargeting)
+            {
+                if (isDragging)
+                {
+                    isDragging = false;
+                    StartCoroutine(SnapToGridRoutine(CurrentOrigin));
+                }
+                return;
+            }
+
             if (levelLoader != null && !levelLoader.IsGameplayActive)
             {
                 if (isDragging)
@@ -324,6 +339,7 @@ namespace LegoPuzzle.Runtime
                 Vector3 touchLocal = transform.parent != null ? transform.parent.InverseTransformPoint(touchWorld) : touchWorld;
                 pointerOffset = transform.localPosition - touchLocal;
                 lastValidGridPos = CurrentOrigin;
+                dragStartLocalPosition = transform.localPosition;
             }
 
             if (!isDragging || isExiting) return;
@@ -364,6 +380,15 @@ namespace LegoPuzzle.Runtime
 
             // Плавне переміщення строго за пальцем без ривків
             transform.localPosition = new Vector3(clampedX, 0.1f, clampedZ);
+
+            // Початок відліку таймера на рівні при першому фактичному зрушенні блоку
+            if (levelLoader != null && !levelLoader.HasFirstMoveOccurred)
+            {
+                if ((transform.localPosition - dragStartLocalPosition).sqrMagnitude > 0.001f)
+                {
+                    levelLoader.NotifyBlockMoved();
+                }
+            }
 
             // 3. Оновлення поточної зайнятої клітинки на сітці з роздільною перевіркою осей
             int targetX = Mathf.RoundToInt(clampedX / cellSize);
@@ -423,6 +448,16 @@ namespace LegoPuzzle.Runtime
 
         public void OnEndDrag(PointerEventData eventData)
         {
+            if (BoosterTutorialManager.IsBoosterTutorialActive || HammerBooster.IsTargeting)
+            {
+                if (isDragging)
+                {
+                    isDragging = false;
+                    StartCoroutine(SnapToGridRoutine(CurrentOrigin));
+                }
+                return;
+            }
+
             if (!isDragging || isExiting) return;
             isDragging = false;
 
@@ -430,6 +465,14 @@ namespace LegoPuzzle.Runtime
             int targetGridY = Mathf.RoundToInt(transform.localPosition.z / cellSize);
 
             Vector2Int targetOrigin = new Vector2Int(targetGridX, targetGridY);
+
+            if (levelLoader != null && !levelLoader.HasFirstMoveOccurred)
+            {
+                if ((transform.localPosition - dragStartLocalPosition).sqrMagnitude > 0.001f || targetOrigin != CurrentOrigin)
+                {
+                    levelLoader.NotifyBlockMoved();
+                }
+            }
 
             if (levelLoader.CanMovePieceTo(this, targetOrigin))
             {
@@ -478,6 +521,16 @@ namespace LegoPuzzle.Runtime
             isExiting = true;
             isDragging = false;
             isSnapping = false;
+
+            if (levelLoader != null)
+            {
+                levelLoader.NotifyBlockMoved();
+            }
+
+            if (GameSettingsManager.HasInstance)
+            {
+                GameSettingsManager.Instance.TriggerHapticExit();
+            }
 
             if (levelLoader != null)
             {

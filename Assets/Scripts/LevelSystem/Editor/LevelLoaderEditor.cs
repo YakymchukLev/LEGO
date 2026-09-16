@@ -16,10 +16,27 @@ namespace LegoPuzzle.Editor
 
             DrawDefaultInspector();
 
+            LevelLoader loader = (LevelLoader)target;
+
+            LevelData previewLevel = loader.CurrentLevel != null ? loader.CurrentLevel : (LevelData)serializedObject.FindProperty("testLevelData").objectReferenceValue;
+            if (previewLevel != null)
+            {
+                var bounds = loader.GetLevelActiveBounds(previewLevel);
+                int maxDim = Mathf.Max(bounds.activeWidth, bounds.activeHeight);
+                string scaleCategory = (maxDim <= 6) ? "Малий рівень (Наближений зум)" : (maxDim >= 12 ? "Великий рівень (Віддалений зум)" : "Середній рівень (Адаптивний зум)");
+
+                EditorGUILayout.Space(8);
+                EditorGUILayout.HelpBox(
+                    $"🎯 Активна зона рівня '{previewLevel.name}':\n" +
+                    $"• Реальні розміри: {bounds.activeWidth} x {bounds.activeHeight} клітинок (Загальна сітка: {previewLevel.gridWidth} x {previewLevel.gridHeight})\n" +
+                    $"• Центр активної зони: X={bounds.centerCellX:F1}, Y={bounds.centerCellY:F1}\n" +
+                    $"• Статус: {scaleCategory}",
+                    MessageType.Info
+                );
+            }
+
             EditorGUILayout.Space(12);
             EditorGUILayout.LabelField("Швидкі дії LevelLoader", EditorStyles.boldLabel);
-
-            LevelLoader loader = (LevelLoader)target;
 
             EditorGUILayout.BeginHorizontal();
 

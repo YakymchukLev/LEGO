@@ -229,6 +229,23 @@ namespace LegoPuzzle.Runtime
             pulseCoroutine = StartCoroutine(TargetingPulseRoutine());
 
             Debug.Log("<color=orange>🔨 Бустер 'Молоток': Режим прицілювання активовано! Оберіть блок для удару.</color>");
+
+            TutorialHandEffect.Dismiss(); // Приберемо руку з кнопки
+
+            if (levelLoader != null && levelLoader.CurrentLevel != null && levelLoader.CurrentLevel.levelIndex == 4)
+            {
+                var allPieces = FindObjectsByType<LegoPieceView>(FindObjectsSortMode.None);
+                foreach (var piece in allPieces)
+                {
+                    if (piece.gameObject.activeInHierarchy)
+                    {
+                        // Вказуємо на перший-ліпший активний блок
+                        GameObject handPrefab = levelLoader != null ? levelLoader.TutorialHandPrefab : null;
+                        TutorialHandEffect.Show(piece, new Vector2Int(0, 0), 1f, handPrefab);
+                        break;
+                    }
+                }
+            }
         }
 
         public void CancelTargeting()
@@ -270,6 +287,7 @@ namespace LegoPuzzle.Runtime
             if (targetPiece == null || isExecutingStrike) return;
 
             CancelTargeting();
+            TutorialHandEffect.Dismiss(); // Прибираємо руку-підказку після удару
             isExecutingStrike = true;
 
             // Списуємо заряд

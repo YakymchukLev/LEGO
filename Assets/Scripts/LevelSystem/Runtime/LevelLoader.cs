@@ -24,14 +24,53 @@ namespace LegoPuzzle.Runtime
         [SerializeField] private bool autoCenterCamera = true;
         [SerializeField] private Camera gameCamera;
 
-        [Tooltip("Частка ширини екрана, яку займає поле (0.84 = 84% ширини, малі рівні автоматично масштабуються для комфортної гри)")]
-        [Range(0.5f, 0.95f)]
-        [SerializeField] private float targetScreenWidthRatio = 0.84f;
+        [Header("Адаптивне масштабування за розміром рівня")]
+        [Tooltip("Автоматично визначати реальні межі активних тайлів та блоків рівня (ігнорує порожні зони та центрує точно по грі)")]
+        [SerializeField] private bool autoDetectLevelBounds = true;
 
-        [Tooltip("Максимальна частка висоти екрана, яку займає поле (0.68 = 68% висоти, залишає місце для верхнього таймера та нижньої зони)")]
-        [Range(0.4f, 0.90f)]
-        [SerializeField] private float targetScreenHeightRatio = 0.68f;
+        [Tooltip("Динамічно змінювати масштаб: підтягувати малі та великі рівні для оптимального заповнення екрана")]
+        [SerializeField] private bool dynamicScaleByLevelSize = true;
 
+        [Tooltip("Частка ширини екрана для малих рівнів (<= 6 клітинок). Наприклад, 0.94 = 94% ширини, значно наближає малі рівні")]
+        [Range(0.6f, 0.98f)]
+        [SerializeField] private float smallLevelScreenWidthRatio = 0.94f;
+
+        [Tooltip("Частка висоти екрана для малих рівнів (<= 6 клітинок)")]
+        [Range(0.5f, 0.92f)]
+        [SerializeField] private float smallLevelScreenHeightRatio = 0.82f;
+
+        [Tooltip("Частка ширини екрана для великих рівнів (>= 12 клітинок). Наприклад, 0.93 = 93% ширини, наближає великі рівні")]
+        [Range(0.5f, 0.98f)]
+        [SerializeField] private float largeLevelScreenWidthRatio = 0.93f;
+
+        [Tooltip("Частка висоти екрана для великих рівнів (>= 12 клітинок). Захищає від перекриття верхнім таймером та нижніми бустерами")]
+        [Range(0.4f, 0.88f)]
+        [SerializeField] private float largeLevelScreenHeightRatio = 0.74f;
+
+        [Tooltip("Пороговий розмір малого рівня в клітинках")]
+        [SerializeField] private float smallLevelThreshold = 6f;
+
+        [Tooltip("Пороговий розмір великого рівня в клітинках")]
+        [SerializeField] private float largeLevelThreshold = 12f;
+
+        [Tooltip("Множник загального наближення (1.0 = норма, > 1.0 наближає ще ближче до поля)")]
+        [Range(0.8f, 1.5f)]
+        [SerializeField] private float cameraZoomMultiplier = 1.0f;
+
+        [Tooltip("Додатковий відступ навколо поля у клітинках (додає трохи простору по краях)")]
+        [Range(0f, 0.5f)]
+        [SerializeField] private float boardPaddingCells = 0.05f;
+
+        [Header("Статичні параметри (коли динамічне масштабування вимкнено)")]
+        [Tooltip("Частка ширини екрана, яку займає поле")]
+        [Range(0.5f, 0.98f)]
+        [SerializeField] private float targetScreenWidthRatio = 0.94f;
+
+        [Tooltip("Максимальна частка висоти екрана, яку займає поле")]
+        [Range(0.4f, 0.92f)]
+        [SerializeField] private float targetScreenHeightRatio = 0.76f;
+
+        [Header("Зсув та обмеження камери")]
         [Tooltip("Додатковий зсув камери по осі Z у світових одиницях (+Z опускає поле нижче на екрані для звільнення місця таймеру, -Z піднімає вище)")]
         [SerializeField] private float cameraVerticalOffset = 0f;
 
@@ -40,6 +79,12 @@ namespace LegoPuzzle.Runtime
 
         [Tooltip("Максимальна дистанція камери")]
         [SerializeField] private float maxCameraDistance = 45f;
+
+        [Tooltip("Чи використовувати плавний перехід камери при зміні рівня чи оновленні")]
+        [SerializeField] private bool smoothCameraTransition = false;
+
+        [Tooltip("Тривалість плавного переходу камери у секундах")]
+        [SerializeField] private float cameraTransitionDuration = 0.35f;
 
         [Header("Батьківські контейнери (Опціонально)")]
         [SerializeField] private Transform boardContainer;
@@ -138,6 +183,14 @@ namespace LegoPuzzle.Runtime
         [Tooltip("Звук завершення дії заморозки часу (опціонально)")]
         [SerializeField] private AudioClip unfreezeSound;
 
+        [Header("Туторіал (Навчання)")]
+        [Tooltip("Префаб руки-показчика для 1-го рівня (якщо порожньо, буде створено базовий спрайт)")]
+        [SerializeField] private GameObject tutorialHandPrefab;
+        public GameObject TutorialHandPrefab => tutorialHandPrefab;
+
+        [Tooltip("Показувати туторіал лише на 1-му рівні")]
+        [SerializeField] private bool showTutorialOnFirstLevel = true;
+
         [Header("Список рівнів та Прогрес")]
         [Tooltip("Список усіх LevelData гри по порядку (Level_001, Level_002, ...)")]
         [SerializeField] private List<LevelData> allLevels = new List<LevelData>();
@@ -180,13 +233,30 @@ namespace LegoPuzzle.Runtime
         public event Action<float> OnTimerUpdated;
         public event Action OnLevelWon;
         public event Action OnLevelLost;
+        public event Action OnFirstMoveMade;
+
+        public bool HasFirstMoveOccurred { get; private set; } = false;
+
+        private bool isLevelWon = false;
+
+        /// <summary>
+        /// Starts the level countdown timer upon the player's first block movement.
+        /// </summary>
+        public void NotifyBlockMoved()
+        {
+            if (HasFirstMoveOccurred) return;
+            HasFirstMoveOccurred = true;
+            OnFirstMoveMade?.Invoke();
+            
+            // Вимикаємо туторіал, якщо він був активний
+            TutorialHandEffect.Dismiss();
+
+            Debug.Log("<color=green>[LevelLoader] First block move detected! Level timer started.</color>");
+        }
 
         private void Awake()
         {
-            if (gameCamera == null)
-            {
-                gameCamera = Camera.main;
-            }
+            EnsureCamera();
 
             lastScreenWidth = Screen.width;
             lastScreenHeight = Screen.height;
@@ -197,8 +267,26 @@ namespace LegoPuzzle.Runtime
             EnsureUIElements();
             EnsureVideoBackground();
 
+            // Автоматично додаємо менеджер туторіалів бустерів, якщо його немає
+            if (GetComponent<BoosterTutorialManager>() == null)
+            {
+                gameObject.AddComponent<BoosterTutorialManager>();
+            }
+
             if (winPanel != null) winPanel.SetActive(false);
             if (losePanel != null) losePanel.SetActive(false);
+        }
+
+        private void EnsureCamera()
+        {
+            if (gameCamera == null)
+            {
+                gameCamera = Camera.main;
+                if (gameCamera == null)
+                {
+                    gameCamera = FindAnyObjectByType<Camera>();
+                }
+            }
         }
 
         private void EnsureAudioSource()
@@ -212,13 +300,37 @@ namespace LegoPuzzle.Runtime
                 }
             }
             audioSource.playOnAwake = false;
+
+            if (GameSettingsManager.HasInstance)
+            {
+                audioSource.mute = !GameSettingsManager.Instance.SoundEnabled;
+                GameSettingsManager.Instance.OnSettingsChanged -= UpdateAudioFromSettings;
+                GameSettingsManager.Instance.OnSettingsChanged += UpdateAudioFromSettings;
+            }
+        }
+
+        private void UpdateAudioFromSettings()
+        {
+            if (audioSource != null && GameSettingsManager.HasInstance)
+            {
+                audioSource.mute = !GameSettingsManager.Instance.SoundEnabled;
+            }
+        }
+
+        private void OnDestroy()
+        {
+            if (GameSettingsManager.HasInstance)
+            {
+                GameSettingsManager.Instance.OnSettingsChanged -= UpdateAudioFromSettings;
+            }
         }
 
         private void OnValidate()
         {
             EnsurePalette();
+            EnsureCamera();
 #if UNITY_EDITOR
-            if (Application.isPlaying && autoCenterCamera && gameCamera != null)
+            if (autoCenterCamera && gameCamera != null)
             {
                 RefreshCameraFraming();
             }
@@ -326,7 +438,7 @@ namespace LegoPuzzle.Runtime
                 {
                     lastScreenWidth = Screen.width;
                     lastScreenHeight = Screen.height;
-                    CenterCamera(CurrentLevel);
+                    CenterCamera(CurrentLevel, true);
                 }
             }
 
@@ -334,6 +446,9 @@ namespace LegoPuzzle.Runtime
 
             if (CurrentLevel != null && CurrentLevel.timeLimitSeconds > 0)
             {
+                // Таймер не починає відлік, доки гравець не здійснить свій перший рух блоком
+                if (!HasFirstMoveOccurred) return;
+
                 if (IsTimeFrozen)
                 {
                     RemainingFreezeTime -= Time.deltaTime;
@@ -424,8 +539,10 @@ namespace LegoPuzzle.Runtime
             RemainingTime = levelData.timeLimitSeconds;
             IsTimeFrozen = false;
             RemainingFreezeTime = 0f;
+            HasFirstMoveOccurred = false;
             piecesExited = 0;
             requiredPiecesToWin = 0;
+            isLevelWon = false;
 
             if (levelData.timeLimitSeconds > 0)
             {
@@ -451,6 +568,15 @@ namespace LegoPuzzle.Runtime
             IsGameplayActive = true;
 
             OnLevelLoaded?.Invoke(levelData.levelIndex);
+
+            // Перевіряємо, чи потрібно показати туторіал
+            if (showTutorialOnFirstLevel && currentLevelIndex == 0 && !HasFirstMoveOccurred)
+            {
+                if (FindBestHintMove(out LegoPieceView tutorialPiece, out Vector2Int tutorialDelta, out bool _))
+                {
+                    TutorialHandEffect.Show(tutorialPiece, tutorialDelta, cellSize, tutorialHandPrefab);
+                }
+            }
         }
 
         public void RestartCurrentLevel()
@@ -498,7 +624,15 @@ namespace LegoPuzzle.Runtime
                     PlayerPrefs.SetInt(PREFS_LEVEL_INDEX, currentLevelIndex);
                     PlayerPrefs.Save();
                 }
-                LoadLevel(allLevels[currentLevelIndex]);
+
+                if (currentLevelIndex <= 4)
+                {
+                    LoadLevel(allLevels[currentLevelIndex]);
+                }
+                else
+                {
+                    LoadMenuScene();
+                }
             }
             else if (CurrentLevel != null)
             {
@@ -718,41 +852,157 @@ namespace LegoPuzzle.Runtime
             }
         }
 
-        private void CenterCamera(LevelData levelData)
+        private Coroutine cameraTransitionCoroutine;
+
+        public struct LevelActiveBounds
         {
-            if (!autoCenterCamera || gameCamera == null || levelData == null) return;
+            public int minX;
+            public int maxX;
+            public int minY;
+            public int maxY;
+            public int activeWidth => (maxX >= minX) ? (maxX - minX + 1) : 1;
+            public int activeHeight => (maxY >= minY) ? (maxY - minY + 1) : 1;
+            public float centerCellX => (minX + maxX) * 0.5f;
+            public float centerCellY => (minY + maxY) * 0.5f;
+            public bool hasValidCells;
+        }
+
+        /// <summary>
+        /// Автоматично розраховує фактичні межі ігрового поля (ігнорує порожні тайли сітки)
+        /// </summary>
+        public LevelActiveBounds GetLevelActiveBounds(LevelData levelData)
+        {
+            LevelActiveBounds bounds = new LevelActiveBounds
+            {
+                minX = int.MaxValue,
+                maxX = int.MinValue,
+                minY = int.MaxValue,
+                maxY = int.MinValue,
+                hasValidCells = false
+            };
+
+            if (autoDetectLevelBounds && levelData != null)
+            {
+                if (levelData.cells != null && levelData.cells.Count > 0)
+                {
+                    for (int i = 0; i < levelData.cells.Count; i++)
+                    {
+                        var cell = levelData.cells[i];
+                        if (cell.cellType != CellType.Empty)
+                        {
+                            if (cell.position.x < bounds.minX) bounds.minX = cell.position.x;
+                            if (cell.position.x > bounds.maxX) bounds.maxX = cell.position.x;
+                            if (cell.position.y < bounds.minY) bounds.minY = cell.position.y;
+                            if (cell.position.y > bounds.maxY) bounds.maxY = cell.position.y;
+                            bounds.hasValidCells = true;
+                        }
+                    }
+                }
+
+                if (levelData.pieces != null && levelData.pieces.Count > 0)
+                {
+                    for (int i = 0; i < levelData.pieces.Count; i++)
+                    {
+                        var piece = levelData.pieces[i];
+                        if (piece == null) continue;
+
+                        var occupiedCells = piece.GetOccupiedGridCells();
+                        if (occupiedCells != null)
+                        {
+                            for (int j = 0; j < occupiedCells.Count; j++)
+                            {
+                                Vector2Int p = occupiedCells[j];
+                                if (p.x < bounds.minX) bounds.minX = p.x;
+                                if (p.x > bounds.maxX) bounds.maxX = p.x;
+                                if (p.y < bounds.minY) bounds.minY = p.y;
+                                if (p.y > bounds.maxY) bounds.maxY = p.y;
+                                bounds.hasValidCells = true;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (!bounds.hasValidCells)
+            {
+                bounds.minX = 0;
+                bounds.maxX = Mathf.Max(0, (levelData != null ? levelData.gridWidth : 1) - 1);
+                bounds.minY = 0;
+                bounds.maxY = Mathf.Max(0, (levelData != null ? levelData.gridHeight : 1) - 1);
+                bounds.hasValidCells = true;
+            }
+
+            return bounds;
+        }
+
+        private void CenterCamera(LevelData levelData, bool forceInstant = false)
+        {
+            if (!autoCenterCamera || levelData == null) return;
+            EnsureCamera();
+            if (gameCamera == null) return;
+
+            LevelActiveBounds bounds = GetLevelActiveBounds(levelData);
 
             // Враховуємо позицію батьківського об'єкта / менеджера у просторі
             Vector3 rootPos = (boardContainer != null) ? boardContainer.position : transform.position;
-            float centerX = rootPos.x + (levelData.gridWidth - 1) * cellSize * 0.5f;
-            float centerZ = rootPos.z + (levelData.gridHeight - 1) * cellSize * 0.5f;
+            float centerX = rootPos.x + bounds.centerCellX * cellSize;
+            float centerZ = rootPos.z + bounds.centerCellY * cellSize;
 
             // Визначаємо співвідношення сторін екрана
             float aspect = (gameCamera.aspect > 0.01f) ? gameCamera.aspect : ((float)Screen.width / Mathf.Max(1, Screen.height));
             if (aspect <= 0.01f) aspect = 9f / 16f;
 
-            float boardWidth = Mathf.Max(1, levelData.gridWidth) * cellSize;
-            float boardHeight = Mathf.Max(1, levelData.gridHeight) * cellSize;
+            float pad = Mathf.Max(0f, boardPaddingCells) * cellSize;
+            float boardWidth = bounds.activeWidth * cellSize + pad * 2f;
+            float boardHeight = bounds.activeHeight * cellSize + pad * 2f;
 
-            // Адаптивний розрахунок розміру: малі рівні масштабуються на екран, а великі комфортно поміщаються
-            float safeWidthRatio = Mathf.Clamp(targetScreenWidthRatio, 0.2f, 0.98f);
-            float safeHeightRatio = Mathf.Clamp(targetScreenHeightRatio, 0.2f, 0.98f);
+            float safeWidthRatio;
+            float safeHeightRatio;
 
-            // Скільки вертикального простору камери потрібно, щоб поле зайняло targetScreenWidthRatio по ширині
+            // Автоматично адаптуємо старі або занижені коефіцієнти зі збережених сцен
+            float effectiveSmallW = smallLevelScreenWidthRatio < 0.5f ? 0.94f : smallLevelScreenWidthRatio;
+            float effectiveLargeW = largeLevelScreenWidthRatio < 0.5f ? 0.93f : largeLevelScreenWidthRatio;
+            float effectiveSmallH = smallLevelScreenHeightRatio < 0.5f ? 0.82f : smallLevelScreenHeightRatio;
+            float effectiveLargeH = largeLevelScreenHeightRatio < 0.4f ? 0.74f : largeLevelScreenHeightRatio;
+
+            // Адаптивний розрахунок розміру: малі та великі рівні масштабуються для заповнення екрана
+            if (dynamicScaleByLevelSize)
+            {
+                float activeDimension = Mathf.Max(bounds.activeWidth, bounds.activeHeight);
+                float denom = Mathf.Max(0.01f, largeLevelThreshold - smallLevelThreshold);
+                float t = Mathf.Clamp01((activeDimension - smallLevelThreshold) / denom);
+                float smoothT = Mathf.SmoothStep(0f, 1f, t);
+
+                safeWidthRatio = Mathf.Lerp(effectiveSmallW, effectiveLargeW, smoothT);
+                safeHeightRatio = Mathf.Lerp(effectiveSmallH, effectiveLargeH, smoothT);
+            }
+            else
+            {
+                safeWidthRatio = (targetScreenWidthRatio <= 0.85f) ? 0.94f : targetScreenWidthRatio;
+                safeHeightRatio = (targetScreenHeightRatio <= 0.70f) ? 0.76f : targetScreenHeightRatio;
+            }
+
+            safeWidthRatio = Mathf.Clamp(safeWidthRatio, 0.2f, 0.98f);
+            safeHeightRatio = Mathf.Clamp(safeHeightRatio, 0.2f, 0.98f);
+
+            // Скільки вертикального простору камери потрібно, щоб поле зайняло safeWidthRatio по ширині
             float visibleHeightByWidth = (boardWidth / safeWidthRatio) / aspect;
 
-            // Скільки вертикального простору камери потрібно, щоб поле зайняло targetScreenHeightRatio по висоті
+            // Скільки вертикального простору камери потрібно, щоб поле зайняло safeHeightRatio по висоті
             float visibleHeightByHeight = boardHeight / safeHeightRatio;
 
             // Беремо максимум, щоб гарантувати, що поле не вилізе за межі екрана ні по ширині, ні по висоті
             float visibleHeight = Mathf.Max(visibleHeightByWidth, visibleHeightByHeight);
 
+            float zoomMult = Mathf.Max(0.1f, cameraZoomMultiplier);
+            visibleHeight /= zoomMult;
+
             Vector3 targetPosition;
+            float targetOrthoSize = visibleHeight * 0.5f;
 
             if (gameCamera.orthographic)
             {
-                float targetOrthoSize = visibleHeight * 0.5f;
-                gameCamera.orthographicSize = Mathf.Clamp(targetOrthoSize, 1.5f, 50f);
+                targetOrthoSize = Mathf.Clamp(targetOrthoSize, 1.5f, 50f);
                 targetPosition = new Vector3(centerX, rootPos.y + 20f, centerZ + cameraVerticalOffset);
             }
             else
@@ -768,13 +1018,80 @@ namespace LegoPuzzle.Runtime
                 targetPosition = new Vector3(centerX, rootPos.y + distance, centerZ + cameraVerticalOffset);
             }
 
-            gameCamera.transform.position = targetPosition;
+            if (cameraTransitionCoroutine != null)
+            {
+                StopCoroutine(cameraTransitionCoroutine);
+                cameraTransitionCoroutine = null;
+            }
+
+            if (!forceInstant && smoothCameraTransition && Application.isPlaying && gameObject.activeInHierarchy)
+            {
+                cameraTransitionCoroutine = StartCoroutine(SmoothCameraTransitionRoutine(targetPosition, targetOrthoSize));
+            }
+            else
+            {
+                gameCamera.transform.position = targetPosition;
+                gameCamera.transform.rotation = Quaternion.Euler(90f, 0f, 0f);
+                if (gameCamera.orthographic)
+                {
+                    gameCamera.orthographicSize = targetOrthoSize;
+                }
+
+                if (videoBackground != null)
+                {
+                    videoBackground.UpdateQuadTransform();
+                }
+
+#if UNITY_EDITOR
+                if (!Application.isPlaying)
+                {
+                    UnityEditor.EditorUtility.SetDirty(gameCamera.transform);
+                }
+#endif
+            }
+        }
+
+        private IEnumerator SmoothCameraTransitionRoutine(Vector3 targetPos, float targetOrthoSize)
+        {
+            Vector3 startPos = gameCamera.transform.position;
+            float startOrtho = gameCamera.orthographicSize;
+            float duration = Mathf.Max(0.05f, cameraTransitionDuration);
+            float elapsed = 0f;
+
+            while (elapsed < duration)
+            {
+                elapsed += Time.unscaledDeltaTime;
+                float t = Mathf.SmoothStep(0f, 1f, elapsed / duration);
+
+                gameCamera.transform.position = Vector3.Lerp(startPos, targetPos, t);
+                gameCamera.transform.rotation = Quaternion.Euler(90f, 0f, 0f);
+
+                if (gameCamera.orthographic)
+                {
+                    gameCamera.orthographicSize = Mathf.Lerp(startOrtho, targetOrthoSize, t);
+                }
+
+                if (videoBackground != null)
+                {
+                    videoBackground.UpdateQuadTransform();
+                }
+
+                yield return null;
+            }
+
+            gameCamera.transform.position = targetPos;
             gameCamera.transform.rotation = Quaternion.Euler(90f, 0f, 0f);
+            if (gameCamera.orthographic)
+            {
+                gameCamera.orthographicSize = targetOrthoSize;
+            }
 
             if (videoBackground != null)
             {
                 videoBackground.UpdateQuadTransform();
             }
+
+            cameraTransitionCoroutine = null;
         }
 
         private void EnsureVideoBackground()
@@ -810,11 +1127,11 @@ namespace LegoPuzzle.Runtime
         {
             if (CurrentLevel != null)
             {
-                CenterCamera(CurrentLevel);
+                CenterCamera(CurrentLevel, true);
             }
             else if (testLevelData != null)
             {
-                CenterCamera(testLevelData);
+                CenterCamera(testLevelData, true);
             }
         }
 
@@ -1110,8 +1427,15 @@ namespace LegoPuzzle.Runtime
 
         public void PlayPieceMoveSound()
         {
+            NotifyBlockMoved();
+
             if (Time.time - lastStepSoundTime < 0.05f) return;
             lastStepSoundTime = Time.time;
+
+            if (GameSettingsManager.HasInstance)
+            {
+                GameSettingsManager.Instance.TriggerHapticMove();
+            }
 
             AudioClip sound1 = pieceMoveSound1 != null ? pieceMoveSound1 : palette?.pieceMoveSound1;
             AudioClip sound2 = pieceMoveSound2 != null ? pieceMoveSound2 : palette?.pieceMoveSound2;
@@ -1895,10 +2219,19 @@ namespace LegoPuzzle.Runtime
 
         private void HandlePieceExited(LegoPieceView piece)
         {
+            NotifyBlockMoved();
             piecesExited++;
+
+            if (GameSettingsManager.HasInstance)
+            {
+                GameSettingsManager.Instance.TriggerHapticExit();
+            }
 
             if (piecesExited >= requiredPiecesToWin)
             {
+                if (isLevelWon) return;
+                isLevelWon = true;
+
                 IsGameplayActive = false;
                 PlayLevelWonSound();
 
@@ -1917,8 +2250,14 @@ namespace LegoPuzzle.Runtime
                     PlayerPrefs.Save();
                 }
 
+                // Автоматично нараховуємо +1 гем за проходження будь-якого рівня
+                if (GemManager.Instance != null)
+                {
+                    GemManager.Instance.AddGems(1);
+                }
+
                 OnLevelWon?.Invoke();
-                Debug.Log("<color=green>Level completed! Victory! Saved next level progress.</color>");
+                Debug.Log("<color=green>Level completed! Victory! Saved next level progress and awarded +1 Gem.</color>");
 
                 if (winPanel != null)
                 {
@@ -1934,6 +2273,7 @@ namespace LegoPuzzle.Runtime
         public void DestroyPieceWithHammer(LegoPieceView piece)
         {
             if (piece == null) return;
+            NotifyBlockMoved();
 
             bool wasRequired = piece.PieceData != null && piece.PieceData.isRequiredForWin;
 
@@ -1950,8 +2290,16 @@ namespace LegoPuzzle.Runtime
                 piecesExited++;
                 Debug.Log($"<color=orange>🔨 Блок знищено молотком! Зараховано прогрес: {piecesExited}/{requiredPiecesToWin}</color>");
 
+                if (GameSettingsManager.HasInstance)
+                {
+                    GameSettingsManager.Instance.TriggerHapticExit();
+                }
+
                 if (piecesExited >= requiredPiecesToWin)
                 {
+                    if (isLevelWon) return;
+                    isLevelWon = true;
+
                     IsGameplayActive = false;
                     PlayLevelWonSound();
 
@@ -1967,8 +2315,14 @@ namespace LegoPuzzle.Runtime
                         PlayerPrefs.Save();
                     }
 
+                    // Автоматично нараховуємо +1 гем за проходження будь-якого рівня
+                    if (GemManager.Instance != null)
+                    {
+                        GemManager.Instance.AddGems(1);
+                    }
+
                     OnLevelWon?.Invoke();
-                    Debug.Log("<color=green>Level completed! Victory through Hammer! Saved next level progress.</color>");
+                    Debug.Log("<color=green>Level completed! Victory through Hammer! Saved next level progress and awarded +1 Gem.</color>");
 
                     if (winPanel != null)
                     {

@@ -100,7 +100,7 @@ namespace LegoPuzzle.Runtime
                 case CellType.ExitGate:
                 case CellType.HalfExitGate:
                     gameObject.SetActive(true);
-                    SetupExitGate(data);
+                    SetupExitGate(data, palette, cellSize);
                     break;
             }
         }
@@ -301,7 +301,23 @@ namespace LegoPuzzle.Runtime
             }
         }
 
-        private void SetupExitGate(CellData data)
+        private Vector3 baseArrowLocalScale = Vector3.one;
+        private float pulseOffset = 0f;
+        private static Sprite cachedArrowSprite;
+
+        private void Update()
+        {
+            if (arrowTransform != null && arrowRenderer != null && arrowRenderer.gameObject.activeSelf &&
+                (CellType == CellType.ExitGate || CellType == CellType.HalfExitGate))
+            {
+                // Smooth subtle rhythmic breathing pulse
+                float t = (Time.time + pulseOffset) * 2.8f;
+                float scalePulse = 1f + Mathf.Sin(t) * 0.07f;
+                arrowTransform.localScale = baseArrowLocalScale * scalePulse;
+            }
+        }
+
+        private void SetupExitGate(CellData data, BlockPalette palette, float cellSize)
         {
             if (mainRenderer != null)
             {
@@ -312,14 +328,50 @@ namespace LegoPuzzle.Runtime
                 mainRenderer.SetPropertyBlock(mpb);
             }
 
+            // Ensure arrow GameObject and SpriteRenderer exist
+            if (arrowRenderer == null)
+            {
+                Transform existing = transform.Find("GateArrow");
+                GameObject arrowObj = (existing != null) ? existing.gameObject : new GameObject("GateArrow");
+                if (existing == null)
+                {
+                    arrowObj.transform.SetParent(transform, false);
+                }
+                arrowRenderer = arrowObj.GetComponent<SpriteRenderer>();
+                if (arrowRenderer == null)
+                {
+                    arrowRenderer = arrowObj.AddComponent<SpriteRenderer>();
+                }
+                arrowTransform = arrowObj.transform;
+            }
+
             if (arrowRenderer != null)
             {
                 arrowRenderer.gameObject.SetActive(true);
+
+                Sprite spriteToUse = (palette != null && palette.exitGateArrowSprite != null)
+                    ? palette.exitGateArrowSprite
+                    : GetOrCreateProceduralArrowSprite();
+
+                arrowRenderer.sprite = spriteToUse;
                 arrowRenderer.color = Color.white;
+                arrowRenderer.sortingOrder = 5;
+
+                // Ensure sprite material in case default is unassigned
+                if (arrowRenderer.sharedMaterial == null)
+                {
+                    Shader s = Shader.Find("Sprites/Default") ?? Shader.Find("Universal Render Pipeline/2D/Sprite-Unlit-Default");
+                    if (s != null) arrowRenderer.sharedMaterial = new Material(s);
+                }
             }
 
             if (arrowTransform != null)
             {
+                // Rotation angle for exit direction:
+                // Up -> 0 deg (faces World +Z)
+                // Right -> -90 deg (faces World +X)
+                // Down -> 180 deg (faces World -Z)
+                // Left -> 90 deg (faces World -X)
                 float angle = data.exitDirection switch
                 {
                     ExitDirection.Up => 0f,
@@ -329,22 +381,115 @@ namespace LegoPuzzle.Runtime
                     _ => 0f
                 };
                 arrowTransform.localRotation = Quaternion.Euler(90f, 0f, angle);
-                // Піднімаємо стрілочку на верхню грань 3D куба (Y > 0.5f)
-                arrowTransform.localPosition = new Vector3(0f, 0.55f, 0f);
 
-                if (CellType == CellType.HalfExitGate)
+                // Calculate surface height of the gate mesh
+                MeshFilter mf = GetComponent<MeshFilter>();
+                if (mf == null) mf = GetComponentInChildren<MeshFilter>(true);
+                bool is2DQuad = false;
+                float maxY = 0.5f;
+                if (mf != null && mf.sharedMesh != null)
                 {
-                    Vector3 pScale = transform.localScale;
-                    float invX = (Mathf.Abs(pScale.x) > 0.001f) ? (1f / Mathf.Abs(pScale.x)) : 1f;
-                    float invZ = (Mathf.Abs(pScale.z) > 0.001f) ? (1f / Mathf.Abs(pScale.z)) : 1f;
-                    float baseSize = 0.5f;
-                    arrowTransform.localScale = new Vector3(invX * baseSize, invZ * baseSize, 1f);
+                    Bounds b = mf.sharedMesh.bounds;
+                    is2DQuad = (b.size.z < 0.01f && b.size.y > 0.01f);
+                    maxY = b.max.y;
                 }
-                else
+                float topY = is2DQuad ? 0.02f : (maxY + 0.025f);
+
+                // Exactly in the horizontal center of the gate
+                arrowTransform.localPosition = new Vector3(0f, topY, 0f);
+
+                // Adaptive scale: compensations for non-uniform parent scale
+                float targetSize = (CellType == CellType.HalfExitGate) ? (cellSize * 0.32f) : (cellSize * 0.52f);
+                Vector3 pScale = transform.localScale;
+                float absSx = Mathf.Max(Mathf.Abs(pScale.x), 0.001f);
+                float absSz = Mathf.Max(Mathf.Abs(pScale.z), 0.001f);
+
+                bool isHorizontal = (data.exitDirection == ExitDirection.Left || data.exitDirection == ExitDirection.Right);
+                float scaleX = isHorizontal ? (targetSize / absSz) : (targetSize / absSx);
+                float scaleY = isHorizontal ? (targetSize / absSx) : (targetSize / absSz);
+
+                baseArrowLocalScale = new Vector3(scaleX, scaleY, 1f);
+                arrowTransform.localScale = baseArrowLocalScale;
+                pulseOffset = (GridPosition.x * 0.7f + GridPosition.y * 1.3f);
+            }
+        }
+
+        /// <summary>
+        /// Generates a procedural high-res anti-aliased bold arrow sprite with high-contrast outline.
+        /// </summary>
+        public static Sprite GetOrCreateProceduralArrowSprite()
+        {
+            if (cachedArrowSprite != null) return cachedArrowSprite;
+
+            const int size = 128;
+            Texture2D tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
+            tex.name = "Procedural_GateExitArrow";
+            tex.filterMode = FilterMode.Bilinear;
+            tex.wrapMode = TextureWrapMode.Clamp;
+
+            Color[] pixels = new Color[size * size];
+            Vector2 center = new Vector2((size - 1) * 0.5f, (size - 1) * 0.5f);
+
+            // Generate crisp, anti-aliased, bold arrow pointing UP (+Y)
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
                 {
-                    arrowTransform.localScale = Vector3.one;
+                    // Normalized coordinates [-1, 1]
+                    float nx = (x - center.x) / (size * 0.5f);
+                    float ny = (y - center.y) / (size * 0.5f);
+
+                    Vector2 p = new Vector2(Mathf.Abs(nx), ny);
+
+                    // Head: segment from tip (0, 0.60) to barb (0.54, 0.05) with thickness 0.16
+                    float distHead = DistanceToSegment(p, new Vector2(0f, 0.60f), new Vector2(0.54f, 0.05f)) - 0.16f;
+
+                    // Stem: segment from bottom (0, -0.60) to join (0, 0.22) with thickness 0.14
+                    float distStem = DistanceToSegment(p, new Vector2(0f, -0.60f), new Vector2(0f, 0.22f)) - 0.14f;
+
+                    float d = Mathf.Min(distHead, distStem);
+
+                    // Anti-aliasing thresholds (sub-pixel transitions)
+                    float fillAlpha = Mathf.Clamp01(0.5f - d / 0.045f);
+                    float outlineAlpha = Mathf.Clamp01(0.5f - (d - 0.065f) / 0.045f);
+
+                    Color col = Color.clear;
+                    if (fillAlpha > 0.005f)
+                    {
+                        // Clean solid white fill with smooth alpha edge
+                        col = new Color(1f, 1f, 1f, fillAlpha);
+                    }
+                    else if (outlineAlpha > 0.005f)
+                    {
+                        // Subtle dark shadow outline (ensures visibility on light-colored gates)
+                        col = new Color(0.05f, 0.05f, 0.05f, outlineAlpha * 0.65f);
+                    }
+
+                    pixels[y * size + x] = col;
                 }
             }
+
+            tex.SetPixels(pixels);
+            tex.Apply(false, true);
+
+            cachedArrowSprite = Sprite.Create(
+                tex,
+                new Rect(0, 0, size, size),
+                new Vector2(0.5f, 0.5f),
+                size,
+                0,
+                SpriteMeshType.FullRect
+            );
+
+            return cachedArrowSprite;
+        }
+
+        private static float DistanceToSegment(Vector2 p, Vector2 a, Vector2 b)
+        {
+            Vector2 pa = p - a;
+            Vector2 ba = b - a;
+            float h = Mathf.Clamp01(Vector2.Dot(pa, ba) / Vector2.Dot(ba, ba));
+            return (pa - ba * h).magnitude;
         }
     }
 }

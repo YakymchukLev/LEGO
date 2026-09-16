@@ -51,6 +51,9 @@ namespace LegoPuzzle.Data
         [Tooltip("Спрайт стрілочок обмеження ↕")]
         public Sprite verticalArrowSprite;
 
+        [Tooltip("Спрайт стрілочки для воріт виходу (якщо не вказано, генерується автоматично)")]
+        public Sprite exitGateArrowSprite;
+
         [Header("Звукові ефекти (SFX)")]
         [Tooltip("Перший звук переміщення деталі при утримуванні (чергується)")]
         public AudioClip pieceMoveSound1;

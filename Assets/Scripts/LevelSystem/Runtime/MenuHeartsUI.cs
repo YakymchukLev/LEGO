@@ -343,6 +343,7 @@ namespace LegoPuzzle.Runtime
                 {
                     heartIconImage.sprite = GetHeartSprite();
                 }
+                EnsureButtonListener();
                 return;
             }
 
@@ -405,6 +406,49 @@ namespace LegoPuzzle.Runtime
             timerText.alignment = TextAlignmentOptions.MidlineLeft;
             timerText.color = fullTimerColor;
             timerText.text = "FULL";
+
+            EnsureButtonListener();
+        }
+
+        private void EnsureButtonListener()
+        {
+            if (widgetContainer == null) return;
+
+            // Ensure an Image on widgetContainer for full-area raycasting
+            Image img = widgetContainer.GetComponent<Image>();
+            if (img == null)
+            {
+                img = widgetContainer.gameObject.AddComponent<Image>();
+                img.color = new Color(0f, 0f, 0f, 0f); // Completely transparent
+            }
+            img.raycastTarget = true;
+
+            Button btn = widgetContainer.GetComponent<Button>();
+            if (btn == null)
+            {
+                btn = widgetContainer.gameObject.AddComponent<Button>();
+                btn.transition = Selectable.Transition.None;
+            }
+            btn.onClick.RemoveListener(OnWidgetClicked);
+            btn.onClick.AddListener(OnWidgetClicked);
+
+            if (widgetContainer.GetComponent<UIButtonPressEffect>() == null)
+            {
+                UIButtonPressEffect.AttachTo(widgetContainer.gameObject);
+            }
+        }
+
+        private void OnWidgetClicked()
+        {
+            if (MenuShopVideoPanel.IsShopOpen) return;
+
+            if (GameSettingsManager.HasInstance)
+            {
+                GameSettingsManager.Instance.PlayClickSound();
+                GameSettingsManager.Instance.TriggerHaptic();
+            }
+
+            MenuShopVideoPanel.OpenShop();
         }
 
         private GameObject CreateRuntimeToast(Canvas canvas)

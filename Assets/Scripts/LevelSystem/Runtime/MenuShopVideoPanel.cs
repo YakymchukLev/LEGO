@@ -51,8 +51,26 @@ namespace LegoPuzzle.Runtime
         private Coroutine animateCoroutine;
         private Coroutine videoFadeCoroutine;
         private bool isAnimating = false;
+        private bool isOpen = false;
+        private bool isOpening = false;
+        private bool isClosing = false;
 
-        public bool IsOpen => gameObject.activeSelf && (canvasGroup == null || canvasGroup.alpha > 0.05f);
+        public bool IsOpen => Application.isPlaying
+            ? (isOpen || isOpening) && !isClosing
+            : (gameObject.activeSelf && (canvasGroup == null || canvasGroup.alpha > 0.05f));
+
+        /// <summary>
+        /// Global helper to check if the menu shop is currently open or opening.
+        /// </summary>
+        public static bool IsShopOpen
+        {
+            get
+            {
+                if (Instance != null) return Instance.IsOpen;
+                var shop = FindAnyObjectByType<MenuShopVideoPanel>(FindObjectsInactive.Include);
+                return shop != null && shop.IsOpen;
+            }
+        }
 
         private void Awake()
         {
@@ -73,6 +91,9 @@ namespace LegoPuzzle.Runtime
             {
                 if (canvasGroup != null) canvasGroup.alpha = 0f;
                 gameObject.SetActive(false);
+                isOpen = false;
+                isOpening = false;
+                isClosing = false;
             }
         }
 
@@ -98,6 +119,9 @@ namespace LegoPuzzle.Runtime
         {
             StopAllCoroutines();
             isAnimating = false;
+            isOpening = false;
+            isClosing = false;
+            isOpen = false;
 
             if (videoPlayer != null && videoPlayer.isPlaying)
             {
@@ -178,11 +202,63 @@ namespace LegoPuzzle.Runtime
         }
 
         /// <summary>
+        /// Global helper to open the shop panel from anywhere (e.g. balance widgets, kiosk buttons).
+        /// </summary>
+        public static void OpenShop()
+        {
+            if (IsShopOpen) return;
+
+            if (Instance != null)
+            {
+                Instance.OpenPanel();
+                return;
+            }
+
+            var shop = FindAnyObjectByType<MenuShopVideoPanel>(FindObjectsInactive.Include);
+            if (shop != null)
+            {
+                shop.OpenPanel();
+                return;
+            }
+
+            // Fallback: check DownPanel kiosk button
+            var anyCanvas = FindAnyObjectByType<Canvas>();
+            if (anyCanvas != null)
+            {
+                Transform dp = anyCanvas.transform.Find("DownPanel");
+                if (dp != null)
+                {
+                    Transform btn = dp.Find("Button");
+                    if (btn != null)
+                    {
+                        var b = btn.GetComponent<Button>();
+                        if (b != null)
+                        {
+                            b.onClick.Invoke();
+                            return;
+                        }
+                    }
+                }
+            }
+
+            // Fallback: in-game BoosterShopPanel if present
+            if (BoosterShopPanel.Instance != null)
+            {
+                BoosterShopPanel.Open(BoosterType.Freeze);
+            }
+        }
+
+        /// <summary>
         /// Opens the full-screen video panel with smooth cinematic zoom & fade.
+        /// If the panel is already open or in the process of opening/closing, the request is ignored.
         /// </summary>
         public void OpenPanel()
         {
-            if (isAnimating && IsOpen) return;
+            if (isOpen || isOpening || isClosing) return;
+
+            isOpen = true;
+            isOpening = true;
+            isClosing = false;
 
             gameObject.SetActive(true);
             EnsureRenderTexture();
@@ -197,7 +273,11 @@ namespace LegoPuzzle.Runtime
         /// </summary>
         public void ClosePanel()
         {
-            if (!gameObject.activeSelf) return;
+            if (!gameObject.activeSelf && !isOpen && !isOpening) return;
+
+            isOpen = false;
+            isOpening = false;
+            isClosing = true;
 
             if (animateCoroutine != null) StopCoroutine(animateCoroutine);
             animateCoroutine = StartCoroutine(AnimateCloseRoutine());
@@ -237,6 +317,8 @@ namespace LegoPuzzle.Runtime
             if (rt != null) rt.localScale = Vector3.one;
 
             isAnimating = false;
+            isOpening = false;
+            isOpen = true;
             animateCoroutine = null;
         }
 
@@ -279,6 +361,8 @@ namespace LegoPuzzle.Runtime
             gameObject.SetActive(false);
 
             isAnimating = false;
+            isClosing = false;
+            isOpen = false;
             animateCoroutine = null;
         }
 
