@@ -384,6 +384,11 @@ namespace LegoPuzzle.Runtime
 
         public void OnMenuClicked()
         {
+            if (GameSettingsManager.HasInstance)
+            {
+                GameSettingsManager.Instance.PlayClickSound();
+            }
+
             if (!string.IsNullOrEmpty(menuSceneName))
             {
                 SceneManager.LoadScene(menuSceneName);

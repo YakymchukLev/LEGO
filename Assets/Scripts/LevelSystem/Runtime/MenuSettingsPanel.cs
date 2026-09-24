@@ -42,11 +42,16 @@ namespace LegoPuzzle.Runtime
         [SerializeField] private RectTransform vibrationKnob;
         [SerializeField] private TMP_Text vibrationStateTMP;
 
-        [Header("Notifications Toggle")]
-        [SerializeField] private Button notificationsToggleBtn;
-        [SerializeField] private Image notificationsToggleBg;
-        [SerializeField] private RectTransform notificationsKnob;
-        [SerializeField] private TMP_Text notificationsStateTMP;
+        [Header("Colorblind Mode Toggle")]
+        [SerializeField] private Button colorblindToggleBtn;
+        [SerializeField] private Image colorblindToggleBg;
+        [SerializeField] private RectTransform colorblindKnob;
+        [SerializeField] private TMP_Text colorblindStateTMP;
+
+        [SerializeField, HideInInspector] private Button notificationsToggleBtn;
+        [SerializeField, HideInInspector] private Image notificationsToggleBg;
+        [SerializeField, HideInInspector] private RectTransform notificationsKnob;
+        [SerializeField, HideInInspector] private TMP_Text notificationsStateTMP;
 
         [Header("Reset Progress Section")]
         [SerializeField] private Button resetProgressBtn;
@@ -60,20 +65,43 @@ namespace LegoPuzzle.Runtime
         [SerializeField] private Color toggleOnColor = new Color(0.2f, 0.82f, 0.48f, 1f); // Vibrant emerald green
         [SerializeField] private Color toggleOffColor = new Color(0.32f, 0.36f, 0.44f, 1f); // Slate grey
 
+        [Header("Slide & Jelly Animation")]
+        [Tooltip("Duration of the slide-in and jelly bounce animation in seconds")]
+        [SerializeField] private float openDuration = 0.46f;
+
+        [Tooltip("Intensity of the jelly squash-and-stretch effect (0.0 = none, 0.12 = balanced jelly, 0.2 = bouncy)")]
+        [Range(0f, 0.25f)]
+        [SerializeField] private float jellyIntensity = 0.12f;
+
+        [Tooltip("Vertical overshoot bounce distance in pixels as the panel lands")]
+        [SerializeField] private float overshootDistance = 28f;
+
+        [Tooltip("Duration of the slide-out close animation in seconds")]
+        [SerializeField] private float closeDuration = 0.24f;
+
         private const float KNOB_OFFSET_X = 26f;
         private const float TEXT_OFFSET_X = 22f;
         private Coroutine animateCoroutine;
         private Coroutine soundKnobCoroutine;
         private Coroutine musicKnobCoroutine;
         private Coroutine vibrationKnobCoroutine;
+        private Coroutine colorblindKnobCoroutine;
         private Coroutine notificationsKnobCoroutine;
         private Coroutine toastCoroutine;
 
+        private Vector2 targetCardAnchoredPosition = Vector2.zero;
+        private Transform[] rowTransforms;
+        private Vector2[] rowOriginalPositions;
+        private bool hasCachedPositions = false;
+        private bool isAnimating = false;
+
         public bool IsOpen => gameObject.activeSelf && (canvasGroup == null || canvasGroup.alpha > 0.05f);
+        public bool IsAnimating => isAnimating;
 
         private void Awake()
         {
             Instance = this;
+            EnsurePositionsCached();
             EnsureUIHierarchy();
             BindButtonListeners();
 
@@ -86,6 +114,7 @@ namespace LegoPuzzle.Runtime
         private void OnEnable()
         {
             Instance = this;
+            EnsurePositionsCached();
             EnsureUIHierarchy();
             BindButtonListeners();
             RefreshAllToggleStates(false);
@@ -100,8 +129,25 @@ namespace LegoPuzzle.Runtime
             }
         }
 
+        private void OnDisable()
+        {
+            if (animateCoroutine != null)
+            {
+                StopCoroutine(animateCoroutine);
+                animateCoroutine = null;
+            }
+            if (dialogCard != null && hasCachedPositions)
+            {
+                dialogCard.anchoredPosition = targetCardAnchoredPosition;
+                dialogCard.localScale = Vector3.one;
+            }
+            RestoreRowPositions();
+            isAnimating = false;
+        }
+
         private void Start()
         {
+            EnsurePositionsCached();
             EnsureUIHierarchy();
             BindButtonListeners();
             RefreshAllToggleStates(false);
@@ -161,10 +207,24 @@ namespace LegoPuzzle.Runtime
                 vibrationToggleBtn.onClick.AddListener(OnVibrationToggleClicked);
             }
 
-            if (notificationsToggleBtn != null)
+            if (colorblindToggleBtn == null && notificationsToggleBtn != null)
             {
-                notificationsToggleBtn.onClick.RemoveListener(OnNotificationsToggleClicked);
-                notificationsToggleBtn.onClick.AddListener(OnNotificationsToggleClicked);
+                colorblindToggleBtn = notificationsToggleBtn;
+                colorblindToggleBg = notificationsToggleBg;
+                colorblindKnob = notificationsKnob;
+                colorblindStateTMP = notificationsStateTMP;
+            }
+
+            if (colorblindToggleBtn != null)
+            {
+                colorblindToggleBtn.onClick.RemoveListener(OnColorblindToggleClicked);
+                colorblindToggleBtn.onClick.AddListener(OnColorblindToggleClicked);
+            }
+
+            if (notificationsToggleBtn != null && notificationsToggleBtn != colorblindToggleBtn)
+            {
+                notificationsToggleBtn.onClick.RemoveListener(OnColorblindToggleClicked);
+                notificationsToggleBtn.onClick.AddListener(OnColorblindToggleClicked);
             }
 
             if (resetProgressBtn != null)
@@ -186,12 +246,122 @@ namespace LegoPuzzle.Runtime
             }
         }
 
+        private void EnsurePositionsCached()
+        {
+            if (hasCachedPositions) return;
+
+            if (dialogCard != null)
+            {
+                // If it's already off-screen for some reason, default to Vector2.zero
+                if (Mathf.Abs(dialogCard.anchoredPosition.y) > 600f)
+                {
+                    targetCardAnchoredPosition = Vector2.zero;
+                }
+                else
+                {
+                    targetCardAnchoredPosition = dialogCard.anchoredPosition;
+                }
+            }
+            EnsureRowReferences();
+            hasCachedPositions = true;
+        }
+
+        private void EnsureRowReferences()
+        {
+            if (dialogCard == null) return;
+            if (rowTransforms != null && rowTransforms.Length > 0 && rowOriginalPositions != null) return;
+
+            Transform row4 = dialogCard.Find("ColorblindRow");
+            if (row4 == null) row4 = dialogCard.Find("NotificationsRow");
+
+            Transform[] candidates = new Transform[]
+            {
+                dialogCard.Find("SoundRow"),
+                dialogCard.Find("MusicRow"),
+                dialogCard.Find("VibrationRow"),
+                row4,
+                dialogCard.Find("ResetProgressButton")
+            };
+
+            int count = 0;
+            for (int i = 0; i < candidates.Length; i++)
+            {
+                if (candidates[i] != null) count++;
+            }
+
+            rowTransforms = new Transform[count];
+            rowOriginalPositions = new Vector2[count];
+
+            int idx = 0;
+            for (int i = 0; i < candidates.Length; i++)
+            {
+                if (candidates[i] != null)
+                {
+                    rowTransforms[idx] = candidates[i];
+                    RectTransform rt = candidates[i].GetComponent<RectTransform>();
+                    rowOriginalPositions[idx] = rt != null ? rt.anchoredPosition : Vector2.zero;
+                    idx++;
+                }
+            }
+        }
+
+        private void RestoreRowPositions()
+        {
+            if (rowTransforms == null || rowOriginalPositions == null) return;
+            for (int i = 0; i < rowTransforms.Length; i++)
+            {
+                if (rowTransforms[i] != null && i < rowOriginalPositions.Length)
+                {
+                    RectTransform rt = rowTransforms[i].GetComponent<RectTransform>();
+                    if (rt != null)
+                    {
+                        rt.anchoredPosition = rowOriginalPositions[i];
+                        rowTransforms[i].localScale = Vector3.one;
+                    }
+                }
+            }
+        }
+
+        private Vector2 CalculateOffscreenBottomPosition()
+        {
+            if (dialogCard == null) return new Vector2(0f, -1600f);
+
+            float parentHeight = 1920f;
+            RectTransform parentRt = dialogCard.parent as RectTransform;
+            if (parentRt != null && parentRt.rect.height > 100f)
+            {
+                parentHeight = parentRt.rect.height;
+            }
+            else
+            {
+                Canvas canvas = GetComponentInParent<Canvas>();
+                if (canvas == null) canvas = FindAnyObjectByType<Canvas>();
+                if (canvas != null)
+                {
+                    RectTransform canvasRt = canvas.GetComponent<RectTransform>();
+                    if (canvasRt != null && canvasRt.rect.height > 100f)
+                    {
+                        parentHeight = canvasRt.rect.height;
+                    }
+                }
+            }
+
+            float cardHeight = dialogCard.rect.height > 50f ? dialogCard.rect.height : 860f;
+            float cardTopExtent = cardHeight * (1f - dialogCard.pivot.y);
+            float offscreenY = -(parentHeight * 0.5f + cardTopExtent + 140f);
+
+            return new Vector2(targetCardAnchoredPosition.x, offscreenY);
+        }
+
         /// <summary>
-        /// Opens the settings panel with a punchy bounce and fade transition.
+        /// Opens the settings panel: slides in smoothly from the bottom with a juicy jelly squash & stretch scale effect.
         /// </summary>
         public void Open()
         {
+            if (IsOpen && isAnimating) return;
+
             gameObject.SetActive(true);
+            EnsurePositionsCached();
             RefreshAllToggleStates(false);
 
             if (confirmationCard != null)
@@ -206,6 +376,7 @@ namespace LegoPuzzle.Runtime
             if (GameSettingsManager.HasInstance)
             {
                 GameSettingsManager.Instance.PlayClickSound();
+                GameSettingsManager.Instance.TriggerHaptic();
             }
 
             if (animateCoroutine != null) StopCoroutine(animateCoroutine);
@@ -213,13 +384,16 @@ namespace LegoPuzzle.Runtime
         }
 
         /// <summary>
-        /// Closes the settings panel with a smooth scale-down and fade.
+        /// Closes the settings panel with a smooth slide-down and fade.
         /// </summary>
         public void Close()
         {
+            if (!gameObject.activeSelf) return;
+
             if (GameSettingsManager.HasInstance)
             {
                 GameSettingsManager.Instance.PlayClickSound();
+                GameSettingsManager.Instance.TriggerHaptic();
             }
 
             if (closeButton != null)
@@ -236,32 +410,31 @@ namespace LegoPuzzle.Runtime
             if (canvasGroup == null) canvasGroup = GetComponent<CanvasGroup>();
             if (dialogCard == null) yield break;
 
+            EnsurePositionsCached();
+            isAnimating = true;
+
             canvasGroup.alpha = 0f;
-            dialogCard.localScale = new Vector3(0.65f, 0.65f, 1f);
+            canvasGroup.blocksRaycasts = true;
 
-            // Staggered rows entrance
-            Transform[] rows = new Transform[]
-            {
-                dialogCard.Find("SoundRow"),
-                dialogCard.Find("MusicRow"),
-                dialogCard.Find("VibrationRow"),
-                dialogCard.Find("NotificationsRow"),
-                dialogCard.Find("ResetProgressButton")
-            };
+            Vector2 startPos = CalculateOffscreenBottomPosition();
+            dialogCard.anchoredPosition = startPos;
+            dialogCard.localScale = new Vector3(0.58f, 0.58f, 1f);
 
-            Vector2[] origPositions = new Vector2[rows.Length];
-            for (int i = 0; i < rows.Length; i++)
+            // Prepare staggered rows
+            EnsureRowReferences();
+            for (int i = 0; i < rowTransforms.Length; i++)
             {
-                if (rows[i] != null)
+                if (rowTransforms[i] != null && i < rowOriginalPositions.Length)
                 {
-                    RectTransform rt = rows[i].GetComponent<RectTransform>();
-                    origPositions[i] = rt.anchoredPosition;
-                    rt.anchoredPosition = new Vector2(origPositions[i].x, origPositions[i].y - 28f);
-                    rows[i].localScale = new Vector3(0.9f, 0.9f, 1f);
+                    RectTransform rt = rowTransforms[i].GetComponent<RectTransform>();
+                    if (rt != null)
+                    {
+                        rt.anchoredPosition = new Vector2(rowOriginalPositions[i].x, rowOriginalPositions[i].y - 20f);
+                    }
                 }
             }
 
-            float duration = 0.34f;
+            float duration = openDuration;
             float elapsed = 0f;
 
             while (elapsed < duration)
@@ -269,36 +442,65 @@ namespace LegoPuzzle.Runtime
                 elapsed += Time.unscaledDeltaTime;
                 float t = Mathf.Clamp01(elapsed / duration);
 
-                // DialogCard elastic overshoot bounce
-                float scaleT;
-                if (t < 0.7f)
+                // 1. POSITION: Fly up from bottom with overshoot bounce
+                float travelT = Mathf.Clamp01(t / 0.62f);
+                float baseTravel = 1f - Mathf.Pow(1f - travelT, 3f);
+                float baseY = Mathf.Lerp(startPos.y, targetCardAnchoredPosition.y, baseTravel);
+
+                // Add physical overshoot bounce in pixel space as panel arrives
+                float bounceOffset = 0f;
+                if (t >= 0.45f)
                 {
-                    float p = t / 0.7f;
-                    scaleT = Mathf.Lerp(0.65f, 1.06f, 1f - Mathf.Pow(1f - p, 2f));
+                    float bt = (t - 0.45f) / 0.55f;
+                    float decay = (1f - bt) * (1f - bt);
+                    bounceOffset = Mathf.Sin(bt * Mathf.PI * 2.2f) * overshootDistance * decay;
+                }
+                dialogCard.anchoredPosition = new Vector2(targetCardAnchoredPosition.x, baseY + bounceOffset);
+
+                // 2. SCALE: Grow with jelly squash & stretch
+                float growT = 1f - Mathf.Pow(1f - t, 2.6f);
+                float baseScale = Mathf.Lerp(0.58f, 1.0f, growT);
+
+                // Jelly deformation (squash & stretch volume-preserving oscillation)
+                float jelly = 0f;
+                if (t < 0.45f)
+                {
+                    // Vertical elongation during upward flight
+                    float flightP = t / 0.45f;
+                    jelly = Mathf.Sin(flightP * Mathf.PI) * jellyIntensity;
                 }
                 else
                 {
-                    float p = (t - 0.7f) / 0.3f;
-                    scaleT = Mathf.Lerp(1.06f, 1.0f, p * (2f - p));
+                    // Squash wide upon landing, then spring back
+                    float impactP = (t - 0.45f) / 0.55f;
+                    float decay = (1f - impactP) * (1f - impactP);
+                    jelly = -Mathf.Sin(impactP * Mathf.PI * 2f) * (jellyIntensity * 0.85f) * decay;
                 }
 
-                dialogCard.localScale = new Vector3(scaleT, scaleT, 1f);
-                canvasGroup.alpha = Mathf.Clamp01(t * 2.2f);
+                float sx = baseScale * (1f - jelly);
+                float sy = baseScale * (1f + jelly);
+                dialogCard.localScale = new Vector3(sx, sy, 1f);
 
-                // Staggered row slide-in
-                for (int i = 0; i < rows.Length; i++)
+                // 3. FADE: Fade in background and dialog
+                canvasGroup.alpha = Mathf.Clamp01(t * 2.8f);
+
+                // 4. STAGGERED ROWS: Subtle cascade into rest positions
+                for (int i = 0; i < rowTransforms.Length; i++)
                 {
-                    if (rows[i] != null)
+                    if (rowTransforms[i] != null && i < rowOriginalPositions.Length)
                     {
-                        float rowStart = 0.05f + i * 0.04f;
-                        float rowDuration = 0.18f;
+                        float rowStart = 0.38f + i * 0.035f;
+                        float rowDur = 0.20f;
                         if (elapsed >= rowStart)
                         {
-                            float rowT = Mathf.Clamp01((elapsed - rowStart) / rowDuration);
+                            float rowT = Mathf.Clamp01((elapsed - rowStart) / rowDur);
                             float smoothRowT = rowT * rowT * (3f - 2f * rowT);
-                            RectTransform rt = rows[i].GetComponent<RectTransform>();
-                            rt.anchoredPosition = Vector2.Lerp(new Vector2(origPositions[i].x, origPositions[i].y - 28f), origPositions[i], smoothRowT);
-                            rows[i].localScale = Vector3.Lerp(new Vector3(0.9f, 0.9f, 1f), Vector3.one, smoothRowT);
+                            RectTransform rt = rowTransforms[i].GetComponent<RectTransform>();
+                            if (rt != null)
+                            {
+                                Vector2 orig = rowOriginalPositions[i];
+                                rt.anchoredPosition = Vector2.Lerp(new Vector2(orig.x, orig.y - 20f), orig, smoothRowT);
+                            }
                         }
                     }
                 }
@@ -306,19 +508,12 @@ namespace LegoPuzzle.Runtime
                 yield return null;
             }
 
+            dialogCard.anchoredPosition = targetCardAnchoredPosition;
             dialogCard.localScale = Vector3.one;
             canvasGroup.alpha = 1f;
+            RestoreRowPositions();
 
-            for (int i = 0; i < rows.Length; i++)
-            {
-                if (rows[i] != null)
-                {
-                    RectTransform rt = rows[i].GetComponent<RectTransform>();
-                    rt.anchoredPosition = origPositions[i];
-                    rows[i].localScale = Vector3.one;
-                }
-            }
-
+            isAnimating = false;
             animateCoroutine = null;
         }
 
@@ -327,36 +522,58 @@ namespace LegoPuzzle.Runtime
             if (canvasGroup == null) canvasGroup = GetComponent<CanvasGroup>();
             if (dialogCard == null) yield break;
 
-            float duration = 0.18f;
-            float elapsed = 0f;
-            Vector3 startScale = dialogCard.localScale;
+            EnsurePositionsCached();
+            isAnimating = true;
+
+            Vector2 startPos = dialogCard.anchoredPosition;
+            Vector2 offscreenPos = CalculateOffscreenBottomPosition();
+            Vector3 initialScale = dialogCard.localScale;
             float startAlpha = canvasGroup.alpha;
+
+            float duration = closeDuration;
+            float elapsed = 0f;
 
             while (elapsed < duration)
             {
                 elapsed += Time.unscaledDeltaTime;
                 float t = Mathf.Clamp01(elapsed / duration);
 
-                float scale;
-                if (t < 0.25f)
+                float moveProgress;
+                float sx, sy;
+
+                if (t < 0.18f)
                 {
-                    float p = t / 0.25f;
-                    scale = Mathf.Lerp(startScale.x, 1.03f, p);
+                    // Brief anticipation squash before sliding down
+                    float p = t / 0.18f;
+                    float anticip = Mathf.Sin(p * Mathf.PI);
+                    sx = Mathf.Lerp(initialScale.x, 1.04f, anticip);
+                    sy = Mathf.Lerp(initialScale.y, 0.95f, anticip);
+                    moveProgress = 0f;
                 }
                 else
                 {
-                    float p = (t - 0.25f) / 0.75f;
-                    scale = Mathf.Lerp(1.03f, 0.70f, p * p);
+                    float p = (t - 0.18f) / 0.82f;
+                    // Ease-in cubic down to offscreen
+                    moveProgress = p * p * p;
+                    // Elongate slightly in falling direction
+                    sx = Mathf.Lerp(1.04f, 0.88f, p);
+                    sy = Mathf.Lerp(0.95f, 1.10f, p);
                 }
 
-                dialogCard.localScale = new Vector3(scale, scale, 1f);
-                canvasGroup.alpha = Mathf.Lerp(startAlpha, 0f, t);
+                dialogCard.anchoredPosition = Vector2.Lerp(startPos, offscreenPos, moveProgress);
+                dialogCard.localScale = new Vector3(sx, sy, 1f);
+                canvasGroup.alpha = Mathf.Lerp(startAlpha, 0f, Mathf.Clamp01(t * 1.5f));
+
                 yield return null;
             }
 
             canvasGroup.alpha = 0f;
+            dialogCard.anchoredPosition = targetCardAnchoredPosition;
             dialogCard.localScale = Vector3.one;
+            RestoreRowPositions();
             gameObject.SetActive(false);
+
+            isAnimating = false;
             animateCoroutine = null;
         }
 
@@ -418,23 +635,29 @@ namespace LegoPuzzle.Runtime
             AnimateToggle(vibrationKnob, vibrationToggleBg, vibrationStateTMP, newState, ref vibrationKnobCoroutine);
         }
 
-        private void OnNotificationsToggleClicked()
+        private void OnColorblindToggleClicked()
         {
-            bool current = GameSettingsManager.HasInstance ? GameSettingsManager.Instance.NotificationsEnabled : true;
+            bool current = GameSettingsManager.HasInstance ? GameSettingsManager.Instance.ColorblindModeEnabled : false;
             bool newState = !current;
 
             if (GameSettingsManager.HasInstance)
             {
-                GameSettingsManager.Instance.SetNotificationsEnabled(newState);
+                GameSettingsManager.Instance.SetColorblindModeEnabled(newState);
                 GameSettingsManager.Instance.PlayClickSound();
+                GameSettingsManager.Instance.TriggerHaptic();
             }
 
-            if (notificationsToggleBtn != null)
+            if (colorblindToggleBtn != null)
             {
-                StartCoroutine(PunchScaleRoutine(notificationsToggleBtn.transform, 1.09f, 0.16f));
+                StartCoroutine(PunchScaleRoutine(colorblindToggleBtn.transform, 1.09f, 0.16f));
             }
 
-            AnimateToggle(notificationsKnob, notificationsToggleBg, notificationsStateTMP, newState, ref notificationsKnobCoroutine);
+            AnimateToggle(colorblindKnob, colorblindToggleBg, colorblindStateTMP, newState, ref colorblindKnobCoroutine);
+        }
+
+        private void OnNotificationsToggleClicked()
+        {
+            OnColorblindToggleClicked();
         }
 
         public void RefreshAllToggleStates(bool animate)
@@ -442,12 +665,12 @@ namespace LegoPuzzle.Runtime
             bool soundOn = GameSettingsManager.HasInstance ? GameSettingsManager.Instance.SoundEnabled : true;
             bool musicOn = GameSettingsManager.HasInstance ? GameSettingsManager.Instance.MusicEnabled : true;
             bool vibOn = GameSettingsManager.HasInstance ? GameSettingsManager.Instance.VibrationEnabled : true;
-            bool notifOn = GameSettingsManager.HasInstance ? GameSettingsManager.Instance.NotificationsEnabled : true;
+            bool colorblindOn = GameSettingsManager.HasInstance ? GameSettingsManager.Instance.ColorblindModeEnabled : false;
 
             SetToggleImmediate(soundKnob, soundToggleBg, soundStateTMP, soundOn);
             SetToggleImmediate(musicKnob, musicToggleBg, musicStateTMP, musicOn);
             SetToggleImmediate(vibrationKnob, vibrationToggleBg, vibrationStateTMP, vibOn);
-            SetToggleImmediate(notificationsKnob, notificationsToggleBg, notificationsStateTMP, notifOn);
+            SetToggleImmediate(colorblindKnob, colorblindToggleBg, colorblindStateTMP, colorblindOn);
         }
 
         private void SetToggleImmediate(RectTransform knob, Image bg, TMP_Text stateTMP, bool isOn)
@@ -813,7 +1036,37 @@ namespace LegoPuzzle.Runtime
                 HookToggleRow("SoundRow", ref soundToggleBtn, ref soundToggleBg, ref soundKnob, ref soundStateTMP);
                 HookToggleRow("MusicRow", ref musicToggleBtn, ref musicToggleBg, ref musicKnob, ref musicStateTMP);
                 HookToggleRow("VibrationRow", ref vibrationToggleBtn, ref vibrationToggleBg, ref vibrationKnob, ref vibrationStateTMP);
-                HookToggleRow("NotificationsRow", ref notificationsToggleBtn, ref notificationsToggleBg, ref notificationsKnob, ref notificationsStateTMP);
+
+                Transform row4 = dialogCard.Find("ColorblindRow");
+                if (row4 == null) row4 = dialogCard.Find("NotificationsRow");
+                if (row4 != null)
+                {
+                    row4.name = "ColorblindRow";
+                    row4.gameObject.SetActive(true);
+
+                    Transform labelTr = row4.Find("Label");
+                    if (labelTr != null)
+                    {
+                        TMP_Text labelTMP = labelTr.GetComponent<TMP_Text>();
+                        if (labelTMP != null) labelTMP.text = "Color Blind";
+                    }
+
+                    Transform iconTr = row4.Find("Icon");
+                    if (iconTr != null)
+                    {
+                        Image iconImg = iconTr.GetComponent<Image>();
+                        if (iconImg != null)
+                        {
+                            iconImg.sprite = GetOrCreateEyeIconSprite();
+                        }
+                    }
+                }
+
+                HookToggleRow("ColorblindRow", ref colorblindToggleBtn, ref colorblindToggleBg, ref colorblindKnob, ref colorblindStateTMP);
+                if (colorblindToggleBtn == null)
+                {
+                    HookToggleRow("NotificationsRow", ref colorblindToggleBtn, ref colorblindToggleBg, ref colorblindKnob, ref colorblindStateTMP);
+                }
 
                 if (resetProgressBtn == null)
                 {
@@ -907,6 +1160,72 @@ namespace LegoPuzzle.Runtime
                 }
             }
             return fonts.Length > 0 ? fonts[0] : null;
+        }
+
+        private static Sprite cachedEyeSprite;
+
+        /// <summary>
+        /// Generates a crisp procedural eye/vision icon sprite for the Colorblind toggle row.
+        /// </summary>
+        public static Sprite GetOrCreateEyeIconSprite()
+        {
+            if (cachedEyeSprite != null) return cachedEyeSprite;
+
+            const int size = 64;
+            Texture2D tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
+            tex.name = "Procedural_EyeIcon";
+            tex.filterMode = FilterMode.Bilinear;
+            tex.wrapMode = TextureWrapMode.Clamp;
+
+            Color[] pixels = new Color[size * size];
+            Vector2 center = new Vector2((size - 1) * 0.5f, (size - 1) * 0.5f);
+            float radius = (size - 1) * 0.46f;
+
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float nx = (x - center.x) / radius; // -1 to 1
+                    float ny = (y - center.y) / (radius * 0.62f); // Flatten vertically for eye shape
+
+                    float dX = Mathf.Abs(nx);
+                    float eyeShapeY = 1f - dX * dX;
+                    float distFromLid = eyeShapeY - Mathf.Abs(ny);
+
+                    Color c = Color.clear;
+                    if (distFromLid > -0.1f && dX <= 1.05f)
+                    {
+                        float alphaLid = Mathf.Clamp01((distFromLid + 0.05f) / 0.15f);
+                        float innerLid = (eyeShapeY * 0.72f) - Mathf.Abs(ny);
+                        float distPupil = Mathf.Sqrt(nx * nx + ny * ny * 0.7f);
+
+                        if (distPupil < 0.36f)
+                        {
+                            c = new Color(0.18f, 0.22f, 0.32f, alphaLid);
+                            if (Mathf.Abs(nx - 0.10f) < 0.09f && Mathf.Abs(ny - 0.10f) < 0.09f)
+                            {
+                                c = new Color(1f, 1f, 1f, alphaLid);
+                            }
+                        }
+                        else if (innerLid < 0f)
+                        {
+                            c = new Color(0.18f, 0.22f, 0.32f, alphaLid);
+                        }
+                        else
+                        {
+                            c = new Color(0.95f, 0.96f, 0.98f, alphaLid * 0.9f);
+                        }
+                    }
+
+                    pixels[y * size + x] = c;
+                }
+            }
+
+            tex.SetPixels(pixels);
+            tex.Apply();
+
+            cachedEyeSprite = Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), 100f);
+            return cachedEyeSprite;
         }
 
         #endregion

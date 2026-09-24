@@ -7,12 +7,13 @@ using LegoPuzzle.Data;
 
 namespace LegoPuzzle.Runtime
 {
-    public class LegoPieceView : MonoBehaviour, IPointerDownHandler, IBeginDragHandler, IDragHandler, IEndDragHandler
+    public class LegoPieceView : MonoBehaviour, IPointerDownHandler, IPointerUpHandler, IBeginDragHandler, IDragHandler, IEndDragHandler
     {
         [Header("Дані деталі")]
         public LegoPieceData PieceData { get; private set; }
         public Vector2Int CurrentOrigin { get; private set; }
         public void SetCurrentOriginDirect(Vector2Int origin) => CurrentOrigin = origin;
+        public bool IsExiting => isExiting;
 
         [Header("Посилання")]
         [SerializeField] private GameObject modelInstance;
@@ -29,11 +30,21 @@ namespace LegoPuzzle.Runtime
 
         private Vector3 dragStartPointerWorld;
         private Vector3 dragStartLocalPosition;
+        private Vector2Int dragStartGridPos;
         private float minWorldX, maxWorldX;
         private float minWorldZ, maxWorldZ;
         private List<Vector2Int> currentOffsets;
 
         public event Action<LegoPieceView> OnExited;
+
+        public void TriggerAutoExit(ExitDirection dir)
+        {
+            if (isExiting) return;
+            isDragging = false;
+            isSnapping = false;
+            SetOutlineActive(false);
+            StartCoroutine(PlayExitAnimation(dir));
+        }
 
         public void Initialize(LegoPieceData data, LevelLoader loader, BlockPalette palette, float size, GameObject visualChild = null)
         {
@@ -77,6 +88,7 @@ namespace LegoPuzzle.Runtime
             SetupVisualModel(palette);
             SetupRestrictionIcon(palette);
             SetupCollider();
+            SetupOutline();
         }
 
         private void SetupCollider()
@@ -211,6 +223,19 @@ namespace LegoPuzzle.Runtime
             }
         }
 
+        /// <summary>
+        /// Refreshes the piece's visual material color (useful when toggling Colorblind Mode dynamically).
+        /// </summary>
+        public void RefreshColor()
+        {
+            if (PieceData == null) return;
+            Color blockColor = PieceData.GetColor();
+            if (modelInstance != null)
+            {
+                ApplyColor(modelInstance, blockColor);
+            }
+        }
+
         private void SetupRestrictionIcon(BlockPalette palette)
         {
             if (PieceData.moveRestriction == MoveRestriction.Free || PieceData.moveRestriction == MoveRestriction.Locked)
@@ -292,7 +317,16 @@ namespace LegoPuzzle.Runtime
             Vector3 touchLocal = transform.parent != null ? transform.parent.InverseTransformPoint(touchWorld) : touchWorld;
             pointerOffset = transform.localPosition - touchLocal;
             lastValidGridPos = CurrentOrigin;
+            dragStartGridPos = CurrentOrigin;
             dragStartLocalPosition = transform.localPosition;
+        }
+
+        public void OnPointerUp(PointerEventData eventData)
+        {
+            if (!isDragging)
+            {
+                SetOutlineActive(false);
+            }
         }
 
         public void OnBeginDrag(PointerEventData eventData)
@@ -303,10 +337,12 @@ namespace LegoPuzzle.Runtime
             if (BoosterTutorialManager.IsBoosterTutorialActive) return;
 
             isDragging = true;
+            SetOutlineActive(true);
             Vector3 touchWorld = GetWorldPointerPosition(eventData);
             Vector3 touchLocal = transform.parent != null ? transform.parent.InverseTransformPoint(touchWorld) : touchWorld;
             pointerOffset = transform.localPosition - touchLocal;
             lastValidGridPos = CurrentOrigin;
+            dragStartGridPos = CurrentOrigin;
             dragStartLocalPosition = transform.localPosition;
         }
 
@@ -339,6 +375,7 @@ namespace LegoPuzzle.Runtime
                 Vector3 touchLocal = transform.parent != null ? transform.parent.InverseTransformPoint(touchWorld) : touchWorld;
                 pointerOffset = transform.localPosition - touchLocal;
                 lastValidGridPos = CurrentOrigin;
+                dragStartGridPos = CurrentOrigin;
                 dragStartLocalPosition = transform.localPosition;
             }
 
@@ -380,15 +417,6 @@ namespace LegoPuzzle.Runtime
 
             // Плавне переміщення строго за пальцем без ривків
             transform.localPosition = new Vector3(clampedX, 0.1f, clampedZ);
-
-            // Початок відліку таймера на рівні при першому фактичному зрушенні блоку
-            if (levelLoader != null && !levelLoader.HasFirstMoveOccurred)
-            {
-                if ((transform.localPosition - dragStartLocalPosition).sqrMagnitude > 0.001f)
-                {
-                    levelLoader.NotifyBlockMoved();
-                }
-            }
 
             // 3. Оновлення поточної зайнятої клітинки на сітці з роздільною перевіркою осей
             int targetX = Mathf.RoundToInt(clampedX / cellSize);
@@ -438,6 +466,15 @@ namespace LegoPuzzle.Runtime
                 }
             }
 
+            // Початок відліку таймера на рівні та вимикання руки-підказки при першому ДІЙСНОМУ переході на нову клітинку
+            if (levelLoader != null && !levelLoader.HasFirstMoveOccurred)
+            {
+                if (CurrentOrigin != dragStartGridPos)
+                {
+                    levelLoader.NotifyBlockMoved();
+                }
+            }
+
             // Миттєвий вихід у ворота під час перетягування (навіть якщо палець ще не відпущено)
             if (!isExiting && levelLoader.CheckIfPieceExits(this, CurrentOrigin, out ExitDirection exitDir))
             {
@@ -448,6 +485,8 @@ namespace LegoPuzzle.Runtime
 
         public void OnEndDrag(PointerEventData eventData)
         {
+            SetOutlineActive(false);
+
             if (BoosterTutorialManager.IsBoosterTutorialActive || HammerBooster.IsTargeting)
             {
                 if (isDragging)
@@ -466,11 +505,21 @@ namespace LegoPuzzle.Runtime
 
             Vector2Int targetOrigin = new Vector2Int(targetGridX, targetGridY);
 
-            if (levelLoader != null && !levelLoader.HasFirstMoveOccurred)
+            bool actuallyMoved = (CurrentOrigin != dragStartGridPos) || (targetOrigin != dragStartGridPos);
+
+            if (actuallyMoved)
             {
-                if ((transform.localPosition - dragStartLocalPosition).sqrMagnitude > 0.001f || targetOrigin != CurrentOrigin)
+                if (levelLoader != null && !levelLoader.HasFirstMoveOccurred)
                 {
                     levelLoader.NotifyBlockMoved();
+                }
+            }
+            else
+            {
+                // Гравець не змінив клітинку (відпустив деталь назад) — повертаємо/гарантуємо руку-підказку
+                if (levelLoader != null && !levelLoader.HasFirstMoveOccurred)
+                {
+                    levelLoader.EnsureFirstLevelTutorialHand();
                 }
             }
 
@@ -485,6 +534,11 @@ namespace LegoPuzzle.Runtime
             }
 
             StartCoroutine(SnapToGridRoutine(CurrentOrigin));
+        }
+
+        private void OnDisable()
+        {
+            SetOutlineActive(false);
         }
 
         private IEnumerator SnapToGridRoutine(Vector2Int targetOrigin)
@@ -521,10 +575,13 @@ namespace LegoPuzzle.Runtime
             isExiting = true;
             isDragging = false;
             isSnapping = false;
+            SetOutlineActive(false);
 
             if (levelLoader != null)
             {
                 levelLoader.NotifyBlockMoved();
+                levelLoader.NotifyGateReaction(this, direction);
+                levelLoader.PlayPieceExitSound();
             }
 
             if (GameSettingsManager.HasInstance)
@@ -532,35 +589,277 @@ namespace LegoPuzzle.Runtime
                 GameSettingsManager.Instance.TriggerHapticExit();
             }
 
-            if (levelLoader != null)
+            // 1. Увімкнення режиму напівпрозорості на матеріалах блоку (URP Transparent Surface)
+            List<Renderer> activeRenderers = new List<Renderer>();
+            Color basePieceColor = PieceData != null ? PieceData.GetColor() : Color.white;
+
+            if (modelInstance != null)
             {
-                levelLoader.PlayPieceExitSound();
+                var rends = modelInstance.GetComponentsInChildren<Renderer>(true);
+                foreach (var r in rends)
+                {
+                    if (r.gameObject.name.StartsWith("Outline_")) continue;
+                    if (r == restrictionIconRenderer) continue;
+                    activeRenderers.Add(r);
+
+                    foreach (var mat in r.materials)
+                    {
+                        mat.SetFloat("_Surface", 1f); // 1 = Transparent
+                        mat.SetOverrideTag("RenderType", "Transparent");
+                        mat.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
+                        mat.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+                        mat.SetInt("_ZWrite", 0);
+                        mat.DisableKeyword("_ALPHATEST_ON");
+                        mat.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+                        mat.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+                    }
+                }
             }
 
             Vector3 exitOffset = direction switch
             {
-                ExitDirection.Up => Vector3.forward * 10f,
-                ExitDirection.Down => Vector3.back * 10f,
-                ExitDirection.Left => Vector3.left * 10f,
-                ExitDirection.Right => Vector3.right * 10f,
-                _ => Vector3.forward * 10f
+                ExitDirection.Up => Vector3.forward * 12f,
+                ExitDirection.Down => Vector3.back * 12f,
+                ExitDirection.Left => Vector3.left * 12f,
+                ExitDirection.Right => Vector3.right * 12f,
+                _ => Vector3.forward * 12f
             };
 
             Vector3 startPos = transform.localPosition;
             Vector3 endPos = startPos + exitOffset;
-            float duration = 0.35f;
+            Vector3 baseScale = transform.localScale;
+
+            // Комбінація 4 (Warp Funnel): розтягування по осі руху та сплющення по боках
+            Vector3 funnelScale = baseScale;
+            if (direction == ExitDirection.Up || direction == ExitDirection.Down)
+            {
+                funnelScale.z *= 1.32f;
+                funnelScale.x *= 0.84f;
+            }
+            else
+            {
+                funnelScale.x *= 1.32f;
+                funnelScale.z *= 0.84f;
+            }
+
+            MaterialPropertyBlock fadeMpb = new MaterialPropertyBlock();
+            float duration = 0.36f;
             float elapsed = 0f;
 
             while (elapsed < duration)
             {
                 elapsed += Time.deltaTime;
-                float t = Mathf.SmoothStep(0f, 1f, elapsed / duration);
-                transform.localPosition = Vector3.Lerp(startPos, endPos, t);
+                float progress = Mathf.Clamp01(elapsed / duration);
+
+                // Прискорення вильоту у ворота (Warp acceleration)
+                float tPos = Mathf.Pow(progress, 1.7f);
+                transform.localPosition = Vector3.Lerp(startPos, endPos, tPos);
+
+                // Пружне розтягування блоку при вході у ворота
+                float tScale = Mathf.Sin(progress * Mathf.PI);
+                transform.localScale = Vector3.Lerp(baseScale, funnelScale, tScale);
+
+                // Напівпрозорість: альфа плавно падає з 1.0f до 0.25f, потім у нуль наприкінці
+                float alpha = Mathf.Lerp(1.0f, 0.25f, progress / 0.7f);
+                if (progress > 0.7f)
+                {
+                    alpha = Mathf.Lerp(0.25f, 0f, (progress - 0.7f) / 0.3f);
+                }
+
+                Color fadedColor = new Color(basePieceColor.r, basePieceColor.g, basePieceColor.b, alpha);
+                foreach (var r in activeRenderers)
+                {
+                    if (r != null)
+                    {
+                        r.GetPropertyBlock(fadeMpb);
+                        fadeMpb.SetColor("_Color", fadedColor);
+                        fadeMpb.SetColor("_BaseColor", fadedColor);
+                        r.SetPropertyBlock(fadeMpb);
+                    }
+                }
+
+                if (restrictionIconRenderer != null)
+                {
+                    Color iconCol = restrictionIconRenderer.color;
+                    restrictionIconRenderer.color = new Color(iconCol.r, iconCol.g, iconCol.b, alpha);
+                }
+
                 yield return null;
             }
 
+            transform.localScale = baseScale;
             OnExited?.Invoke(this);
             gameObject.SetActive(false);
+        }
+
+        // ==========================================
+        // 3D Outline (Обводка блоку при русі)
+        // ==========================================
+
+        private List<GameObject> outlineObjects = new List<GameObject>();
+        private static Material sharedOutlineMaterial;
+
+        public void SetOutlineActive(bool active)
+        {
+            if (outlineObjects == null) return;
+            for (int i = 0; i < outlineObjects.Count; i++)
+            {
+                if (outlineObjects[i] != null && outlineObjects[i].activeSelf != active)
+                {
+                    outlineObjects[i].SetActive(active);
+                }
+            }
+        }
+
+        private void SetupOutline()
+        {
+            if (modelInstance == null) return;
+
+            if (outlineObjects != null)
+            {
+                foreach (var obj in outlineObjects)
+                {
+                    if (obj != null) Destroy(obj);
+                }
+                outlineObjects.Clear();
+            }
+            else
+            {
+                outlineObjects = new List<GameObject>();
+            }
+
+            Material outlineMat = GetOrCreateOutlineMaterial();
+
+            // 1. SkinnedMeshRenderer (3D-моделі деталей з BlendShapes морфінгом)
+            var smrs = modelInstance.GetComponentsInChildren<SkinnedMeshRenderer>(true);
+            foreach (var smr in smrs)
+            {
+                if (smr == null || smr.sharedMesh == null) continue;
+                if (smr.gameObject.name.StartsWith("Outline_")) continue;
+
+                GameObject outlineChild = new GameObject("Outline_Skinned");
+                outlineChild.transform.SetParent(smr.transform, false);
+                outlineChild.transform.localPosition = Vector3.zero;
+                outlineChild.transform.localRotation = Quaternion.identity;
+                outlineChild.transform.localScale = Vector3.one;
+
+                Mesh bakedMesh = new Mesh();
+                bakedMesh.name = smr.name + "_BakedOutline";
+                smr.BakeMesh(bakedMesh);
+
+                BakeSmoothedNormalsToTangents(bakedMesh);
+
+                MeshFilter outMf = outlineChild.AddComponent<MeshFilter>();
+                outMf.sharedMesh = bakedMesh;
+
+                MeshRenderer outMr = outlineChild.AddComponent<MeshRenderer>();
+                outMr.sharedMaterial = outlineMat;
+                outMr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                outMr.receiveShadows = false;
+
+                outlineChild.SetActive(false);
+                outlineObjects.Add(outlineChild);
+            }
+
+            // 2. MeshFilter (процедурні або стандартні меші без скінінгу)
+            var meshFilters = modelInstance.GetComponentsInChildren<MeshFilter>(true);
+            foreach (var mf in meshFilters)
+            {
+                if (mf == null || mf.sharedMesh == null) continue;
+                if (mf.gameObject.name.StartsWith("Outline_")) continue;
+                if (mf.GetComponent<SkinnedMeshRenderer>() != null) continue;
+
+                GameObject outlineChild = new GameObject("Outline_Mesh");
+                outlineChild.transform.SetParent(mf.transform, false);
+                outlineChild.transform.localPosition = Vector3.zero;
+                outlineChild.transform.localRotation = Quaternion.identity;
+                outlineChild.transform.localScale = Vector3.one;
+
+                Mesh outlineMesh = Instantiate(mf.sharedMesh);
+                outlineMesh.name = mf.sharedMesh.name + "_Outline";
+                BakeSmoothedNormalsToTangents(outlineMesh);
+
+                MeshFilter outMf = outlineChild.AddComponent<MeshFilter>();
+                outMf.sharedMesh = outlineMesh;
+
+                MeshRenderer outMr = outlineChild.AddComponent<MeshRenderer>();
+                outMr.sharedMaterial = outlineMat;
+                outMr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                outMr.receiveShadows = false;
+
+                outlineChild.SetActive(false);
+                outlineObjects.Add(outlineChild);
+            }
+        }
+
+        private static Material GetOrCreateOutlineMaterial()
+        {
+            if (sharedOutlineMaterial != null) return sharedOutlineMaterial;
+
+            Shader s = Shader.Find("Custom/BlockOutline");
+            if (s == null) s = Shader.Find("Universal Render Pipeline/Unlit");
+            if (s == null) s = Shader.Find("Sprites/Default");
+
+            sharedOutlineMaterial = new Material(s);
+            sharedOutlineMaterial.name = "M_BlockOutline";
+            sharedOutlineMaterial.SetColor("_OutlineColor", new Color(1f, 1f, 1f, 0.95f));
+            sharedOutlineMaterial.SetFloat("_OutlineWidth", 0.045f);
+            return sharedOutlineMaterial;
+        }
+
+        private static void BakeSmoothedNormalsToTangents(Mesh mesh)
+        {
+            if (mesh == null) return;
+            try
+            {
+                Vector3[] vertices = mesh.vertices;
+                Vector3[] normals = mesh.normals;
+
+                if (normals != null && normals.Length == vertices.Length)
+                {
+                    Dictionary<Vector3, Vector3> averageNormals = new Dictionary<Vector3, Vector3>(vertices.Length);
+                    for (int i = 0; i < vertices.Length; i++)
+                    {
+                        Vector3 v = vertices[i];
+                        Vector3 key = new Vector3(Mathf.Round(v.x * 1000f) / 1000f, Mathf.Round(v.y * 1000f) / 1000f, Mathf.Round(v.z * 1000f) / 1000f);
+                        if (averageNormals.TryGetValue(key, out Vector3 accumulated))
+                        {
+                            averageNormals[key] = accumulated + normals[i];
+                        }
+                        else
+                        {
+                            averageNormals[key] = normals[i];
+                        }
+                    }
+
+                    Vector4[] tangents = new Vector4[vertices.Length];
+                    for (int i = 0; i < vertices.Length; i++)
+                    {
+                        Vector3 v = vertices[i];
+                        Vector3 key = new Vector3(Mathf.Round(v.x * 1000f) / 1000f, Mathf.Round(v.y * 1000f) / 1000f, Mathf.Round(v.z * 1000f) / 1000f);
+                        Vector3 avg = averageNormals[key].normalized;
+                        tangents[i] = new Vector4(avg.x, avg.y, avg.z, 1f);
+                    }
+
+                    mesh.tangents = tangents;
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[LegoPieceView] Error baking smoothed tangents: {ex.Message}");
+            }
+        }
+
+        private void OnDestroy()
+        {
+            if (outlineObjects != null)
+            {
+                foreach (var obj in outlineObjects)
+                {
+                    if (obj != null) Destroy(obj);
+                }
+                outlineObjects.Clear();
+            }
         }
 
         private Vector3 GetWorldPointerPosition(PointerEventData eventData)

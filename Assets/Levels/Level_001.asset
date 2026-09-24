@@ -14,7 +14,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   levelIndex: 1
   levelTitle: Level 1
-  timeLimitSeconds: 20
+  timeLimitSeconds: 60
   movesLimit: 0
   gridWidth: 6
   gridHeight: 6

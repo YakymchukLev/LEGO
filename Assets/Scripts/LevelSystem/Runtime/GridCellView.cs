@@ -1,3 +1,5 @@
+using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
 using LegoPuzzle.Data;
 
@@ -102,6 +104,26 @@ namespace LegoPuzzle.Runtime
                     gameObject.SetActive(true);
                     SetupExitGate(data, palette, cellSize);
                     break;
+            }
+
+            baseGateLocalScale = transform.localScale;
+            cachedCellSize = cellSize;
+        }
+
+        /// <summary>
+        /// Refreshes the gate's visual color (useful when toggling Colorblind Mode dynamically).
+        /// </summary>
+        public void RefreshGateColor()
+        {
+            if (CellType != CellType.ExitGate && CellType != CellType.HalfExitGate) return;
+            GateColor = LegoPuzzle.Data.ColorblindPalette.GetGateColor(GateColorType);
+            if (mainRenderer != null)
+            {
+                MaterialPropertyBlock mpb = new MaterialPropertyBlock();
+                mainRenderer.GetPropertyBlock(mpb);
+                mpb.SetColor("_Color", GateColor);
+                mpb.SetColor("_BaseColor", GateColor);
+                mainRenderer.SetPropertyBlock(mpb);
             }
         }
 
@@ -301,24 +323,46 @@ namespace LegoPuzzle.Runtime
             }
         }
 
+        private Vector3 baseGateLocalScale = Vector3.one;
         private Vector3 baseArrowLocalScale = Vector3.one;
+        private Vector3 baseArrowLocalPos = Vector3.zero;
+        private float cachedCellSize = 1f;
         private float pulseOffset = 0f;
+        private Coroutine reactionCoroutine;
         private static Sprite cachedArrowSprite;
+        private static Sprite cachedShockwaveSprite;
 
         private void Update()
         {
             if (arrowTransform != null && arrowRenderer != null && arrowRenderer.gameObject.activeSelf &&
                 (CellType == CellType.ExitGate || CellType == CellType.HalfExitGate))
             {
-                // Smooth subtle rhythmic breathing pulse
                 float t = (Time.time + pulseOffset) * 2.8f;
-                float scalePulse = 1f + Mathf.Sin(t) * 0.07f;
+                // Комбінація 3: ритмічне дихання масштабу
+                float scalePulse = 1f + Mathf.Sin(t) * 0.08f;
                 arrowTransform.localScale = baseArrowLocalScale * scalePulse;
+
+                // Комбінація 4: магнітне втягування (імпульс зміщення стрілки у напрямку виходу)
+                float pullSin = Mathf.Max(0f, Mathf.Sin(t * 1.3f));
+                float pullDist = pullSin * (cachedCellSize * 0.08f);
+
+                Vector3 dirLocalOffset = ExitDirection switch
+                {
+                    ExitDirection.Up => Vector3.forward * pullDist,
+                    ExitDirection.Down => Vector3.back * pullDist,
+                    ExitDirection.Left => Vector3.left * pullDist,
+                    ExitDirection.Right => Vector3.right * pullDist,
+                    _ => Vector3.zero
+                };
+
+                arrowTransform.localPosition = baseArrowLocalPos + dirLocalOffset;
             }
         }
 
         private void SetupExitGate(CellData data, BlockPalette palette, float cellSize)
         {
+            cachedCellSize = cellSize;
+
             if (mainRenderer != null)
             {
                 MaterialPropertyBlock mpb = new MaterialPropertyBlock();
@@ -396,7 +440,8 @@ namespace LegoPuzzle.Runtime
                 float topY = is2DQuad ? 0.02f : (maxY + 0.025f);
 
                 // Exactly in the horizontal center of the gate
-                arrowTransform.localPosition = new Vector3(0f, topY, 0f);
+                baseArrowLocalPos = new Vector3(0f, topY, 0f);
+                arrowTransform.localPosition = baseArrowLocalPos;
 
                 // Adaptive scale: compensations for non-uniform parent scale
                 float targetSize = (CellType == CellType.HalfExitGate) ? (cellSize * 0.32f) : (cellSize * 0.52f);
@@ -412,6 +457,179 @@ namespace LegoPuzzle.Runtime
                 arrowTransform.localScale = baseArrowLocalScale;
                 pulseOffset = (GridPosition.x * 0.7f + GridPosition.y * 1.3f);
             }
+        }
+
+        /// <summary>
+        /// Запускає соковиту комбіновану реакцію воріт при проходженні блоку:
+        /// желейне розтягування (Squash & Stretch), неоновий спалах та розширення кільця ударної хвилі (Shockwave).
+        /// </summary>
+        public void PlayGateExitReaction(ExitDirection dir, Color pieceColor)
+        {
+            if (!gameObject.activeInHierarchy) return;
+            if (reactionCoroutine != null) StopCoroutine(reactionCoroutine);
+            reactionCoroutine = StartCoroutine(GateExitReactionRoutine(dir, pieceColor));
+        }
+
+        private IEnumerator GateExitReactionRoutine(ExitDirection dir, Color pieceColor)
+        {
+            // 1. Спавн круглої ударної хвилі (Shockwave ring)
+            Color waveColor = (pieceColor != Color.clear && pieceColor.a > 0.01f) ? pieceColor : GateColor;
+            SpawnShockwave(waveColor);
+
+            // 2. Неоновий спалах яскравості тайлу воріт
+            if (mainRenderer != null)
+            {
+                MaterialPropertyBlock mpb = new MaterialPropertyBlock();
+                Color flashColor = Color.Lerp(GateColor, Color.white, 0.75f);
+                mainRenderer.GetPropertyBlock(mpb);
+                mpb.SetColor("_Color", flashColor);
+                mpb.SetColor("_BaseColor", flashColor);
+                mainRenderer.SetPropertyBlock(mpb);
+            }
+
+            // 3. Желейний сплеск масштабу з розтягуванням вздовж осі виходу (Squash & Stretch)
+            Vector3 baseScale = baseGateLocalScale;
+            if (baseScale == Vector3.zero) baseScale = transform.localScale;
+
+            Vector3 targetStretch = baseScale;
+            if (dir == ExitDirection.Up || dir == ExitDirection.Down)
+            {
+                targetStretch.z *= 1.35f;
+                targetStretch.x *= 1.15f;
+            }
+            else
+            {
+                targetStretch.x *= 1.35f;
+                targetStretch.z *= 1.15f;
+            }
+
+            float duration = 0.35f;
+            float elapsed = 0f;
+
+            while (elapsed < duration)
+            {
+                elapsed += Time.deltaTime;
+                float progress = Mathf.Clamp01(elapsed / duration);
+
+                // Пружна крива з легким овершутом
+                float tScale = Mathf.Sin(progress * Mathf.PI * 1.3f);
+                if (progress > 0.75f)
+                {
+                    tScale = -Mathf.Sin((progress - 0.75f) / 0.25f * Mathf.PI) * 0.12f;
+                }
+
+                transform.localScale = Vector3.LerpUnclamped(baseScale, targetStretch, Mathf.Max(0f, tScale));
+
+                // Плавне повернення кольору після перших 0.08с
+                if (mainRenderer != null && progress > 0.2f)
+                {
+                    float colorProgress = (progress - 0.2f) / 0.8f;
+                    Color curCol = Color.Lerp(Color.Lerp(GateColor, Color.white, 0.75f), GateColor, colorProgress);
+                    MaterialPropertyBlock mpb = new MaterialPropertyBlock();
+                    mainRenderer.GetPropertyBlock(mpb);
+                    mpb.SetColor("_Color", curCol);
+                    mpb.SetColor("_BaseColor", curCol);
+                    mainRenderer.SetPropertyBlock(mpb);
+                }
+
+                yield return null;
+            }
+
+            transform.localScale = baseScale;
+            RefreshGateColor();
+            reactionCoroutine = null;
+        }
+
+        private void SpawnShockwave(Color color)
+        {
+            GameObject waveObj = new GameObject("GateShockwave");
+            waveObj.transform.position = transform.position + Vector3.up * 0.05f;
+            waveObj.transform.rotation = Quaternion.Euler(90f, 0f, 0f);
+
+            SpriteRenderer sr = waveObj.AddComponent<SpriteRenderer>();
+            sr.sprite = GetOrCreateShockwaveSprite();
+            sr.color = color;
+            sr.sortingOrder = 10;
+
+            Shader s = Shader.Find("Sprites/Default") ?? Shader.Find("Universal Render Pipeline/2D/Sprite-Unlit-Default");
+            if (s != null) sr.sharedMaterial = new Material(s);
+
+            StartCoroutine(ShockwaveExpandRoutine(waveObj, sr, color));
+        }
+
+        private IEnumerator ShockwaveExpandRoutine(GameObject waveObj, SpriteRenderer sr, Color color)
+        {
+            float duration = 0.28f;
+            float elapsed = 0f;
+            float cSize = cachedCellSize > 0.05f ? cachedCellSize : 1f;
+            Vector3 startScale = Vector3.one * (cSize * 0.35f);
+            Vector3 endScale = Vector3.one * (cSize * 2.2f);
+
+            while (elapsed < duration)
+            {
+                elapsed += Time.deltaTime;
+                float t = Mathf.Clamp01(elapsed / duration);
+
+                if (waveObj != null)
+                {
+                    waveObj.transform.localScale = Vector3.Lerp(startScale, endScale, Mathf.SmoothStep(0f, 1f, t));
+                }
+
+                if (sr != null)
+                {
+                    float alpha = Mathf.Lerp(0.85f, 0f, t * t);
+                    sr.color = new Color(color.r, color.g, color.b, alpha);
+                }
+
+                yield return null;
+            }
+
+            if (waveObj != null) Destroy(waveObj);
+        }
+
+        /// <summary>
+        /// Генерує процедурний спрайт кільця ударної хвилі (Shockwave ring).
+        /// </summary>
+        public static Sprite GetOrCreateShockwaveSprite()
+        {
+            if (cachedShockwaveSprite != null) return cachedShockwaveSprite;
+
+            const int size = 128;
+            Texture2D tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
+            tex.name = "Procedural_ShockwaveRing";
+            tex.filterMode = FilterMode.Bilinear;
+            tex.wrapMode = TextureWrapMode.Clamp;
+
+            Color[] pixels = new Color[size * size];
+            Vector2 center = new Vector2((size - 1) * 0.5f, (size - 1) * 0.5f);
+            float targetRadius = (size * 0.5f) * 0.76f;
+            float halfThickness = 9f;
+
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float dist = Vector2.Distance(new Vector2(x, y), center);
+                    float dRing = Mathf.Abs(dist - targetRadius);
+                    float alpha = Mathf.Clamp01(1f - (dRing / halfThickness));
+                    alpha = alpha * alpha * (3f - 2f * alpha); // Smoothstep curve
+                    pixels[y * size + x] = new Color(1f, 1f, 1f, alpha);
+                }
+            }
+
+            tex.SetPixels(pixels);
+            tex.Apply(false, true);
+
+            cachedShockwaveSprite = Sprite.Create(
+                tex,
+                new Rect(0, 0, size, size),
+                new Vector2(0.5f, 0.5f),
+                size,
+                0,
+                SpriteMeshType.FullRect
+            );
+
+            return cachedShockwaveSprite;
         }
 
         /// <summary>

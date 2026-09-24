@@ -64,6 +64,10 @@ namespace LegoPuzzle.Runtime
             GameObject obj = new GameObject("TutorialHandEffectUI");
             obj.transform.SetParent(uiTarget.transform.parent != null ? uiTarget.transform.parent : uiTarget.transform, false);
 
+            var canvas = obj.AddComponent<Canvas>();
+            canvas.overrideSorting = true;
+            canvas.sortingOrder = 20;
+
             TutorialHandEffect effect = obj.AddComponent<TutorialHandEffect>();
             effect.InitializeUI(uiTarget, customHandPrefab);
             activeInstance = effect;
@@ -202,6 +206,8 @@ namespace LegoPuzzle.Runtime
             if (customHandPrefab != null)
             {
                 handObject = Instantiate(customHandPrefab, transform);
+                var srs = handObject.GetComponentsInChildren<SpriteRenderer>(true);
+                foreach (var s in srs) s.sortingOrder = 100;
             }
             else
             {
@@ -249,6 +255,10 @@ namespace LegoPuzzle.Runtime
             // Спеціальний плавний тап на місці (наприклад, для вибору блоку молотком)
             if (moveDelta == Vector2Int.zero)
             {
+                // Розміщуємо руку так, щоб кінчик пальця вказував у центр блоку (зсув трохи назад по Z)
+                Vector3 basePos = handBasePos + Vector3.back * (0.35f * cellSize);
+                handObject.transform.position = basePos;
+
                 while (true)
                 {
                     if (targetPiece == null || handObject == null) yield break;
@@ -263,8 +273,10 @@ namespace LegoPuzzle.Runtime
                         pressFactor = Mathf.SmoothStep(0f, 1f, Mathf.Sin(phase * Mathf.PI));
                     }
 
-                    handObject.transform.position = handBasePos + Vector3.down * (0.35f * cellSize * pressFactor);
-                    handObject.transform.localScale = Vector3.one * Mathf.Lerp(1.0f, 0.85f, pressFactor);
+                    // Тап вперед по екрану та вниз до блоку для виразного руху з камери зверху
+                    Vector3 tapOffset = (Vector3.forward * 0.18f + Vector3.down * 0.35f) * (cellSize * pressFactor);
+                    handObject.transform.position = basePos + tapOffset;
+                    handObject.transform.localScale = Vector3.one * Mathf.Lerp(1.0f, 0.82f, pressFactor);
 
                     yield return null;
                 }

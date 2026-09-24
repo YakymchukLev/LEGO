@@ -67,19 +67,12 @@ namespace LegoPuzzle.Data
 
         public Color GetEffectiveColor()
         {
-            return gateColorType switch
-            {
-                BlockColorType.Red => new Color(0.95f, 0.2f, 0.2f),
-                BlockColorType.Yellow => new Color(0.98f, 0.88f, 0.15f),
-                BlockColorType.Blue => new Color(0.15f, 0.45f, 0.95f),
-                BlockColorType.Green => new Color(0.25f, 0.85f, 0.25f),
-                BlockColorType.Purple => new Color(0.65f, 0.15f, 0.85f),
-                BlockColorType.Pink => new Color(0.98f, 0.45f, 0.75f),
-                BlockColorType.Cyan => new Color(0.2f, 0.85f, 0.95f),
-                BlockColorType.Orange => new Color(0.98f, 0.55f, 0.15f),
-                BlockColorType.Universal => new Color(0.95f, 0.95f, 0.95f),
-                _ => customGateColor
-            };
+            return ColorblindPalette.GetPieceColor(gateColorType, customGateColor);
+        }
+
+        public Color GetEffectiveColor(bool forceColorblind)
+        {
+            return ColorblindPalette.GetPieceColor(gateColorType, customGateColor, forceColorblind);
         }
     }
 }

@@ -55,19 +55,12 @@ namespace LegoPuzzle.Data
 
         public Color GetColor()
         {
-            return colorType switch
-            {
-                BlockColorType.Red => new Color(0.92f, 0.22f, 0.22f),
-                BlockColorType.Yellow => new Color(0.98f, 0.85f, 0.15f),
-                BlockColorType.Blue => new Color(0.18f, 0.48f, 0.95f),
-                BlockColorType.Green => new Color(0.28f, 0.85f, 0.28f),
-                BlockColorType.Purple => new Color(0.68f, 0.18f, 0.88f),
-                BlockColorType.Pink => new Color(0.98f, 0.45f, 0.75f),
-                BlockColorType.Cyan => new Color(0.22f, 0.85f, 0.95f),
-                BlockColorType.Orange => new Color(0.98f, 0.55f, 0.15f),
-                BlockColorType.Universal => new Color(0.95f, 0.95f, 0.95f),
-                _ => customColor
-            };
+            return ColorblindPalette.GetPieceColor(colorType, customColor);
+        }
+
+        public Color GetColor(bool forceColorblind)
+        {
+            return ColorblindPalette.GetPieceColor(colorType, customColor, forceColorblind);
         }
     }
 }

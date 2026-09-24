@@ -1,7 +1,9 @@
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.SceneManagement;
+using UnityEngine.UI;
 
 namespace LegoPuzzle.Runtime
 {
@@ -40,6 +42,7 @@ namespace LegoPuzzle.Runtime
         private const string PREFS_MUSIC_ENABLED = "LEGO_MusicEnabled";
         private const string PREFS_VIBRATION_ENABLED = "LEGO_VibrationEnabled";
         private const string PREFS_NOTIFICATIONS_ENABLED = "LEGO_NotificationsEnabled";
+        private const string PREFS_COLORBLIND_ENABLED = "LEGO_ColorblindEnabled";
         private const string PREFS_SOUND_VOLUME = "LEGO_SoundVolume";
         private const string PREFS_MUSIC_VOLUME = "LEGO_MusicVolume";
         private const string PREFS_LEVEL_INDEX = "LEGO_CurrentLevelIndex";
@@ -64,14 +67,17 @@ namespace LegoPuzzle.Runtime
         private Coroutine musicFadeCoroutine;
 
         public event Action OnSettingsChanged;
+        public event Action<bool> OnColorblindModeChanged;
 
         public bool SoundEnabled { get; private set; } = true;
         public bool MusicEnabled { get; private set; } = true;
         public bool VibrationEnabled { get; private set; } = true;
         public bool NotificationsEnabled { get; private set; } = true;
+        public bool ColorblindModeEnabled { get; private set; } = false;
         public float SoundVolume { get; private set; } = 1f;
         public float MusicVolume { get; private set; } = 1f;
 
+        public AudioClip ButtonClickSound { get => buttonClickSound; set => buttonClickSound = value; }
         public AudioClip MenuMusicClip { get => menuMusicClip; set => menuMusicClip = value; }
         public AudioClip GameMusicClip { get => gameMusicClip; set => gameMusicClip = value; }
 
@@ -101,17 +107,24 @@ namespace LegoPuzzle.Runtime
         private void OnDisable()
         {
             SceneManager.sceneLoaded -= HandleSceneLoaded;
+            if (buttonWatchCoroutine != null)
+            {
+                StopCoroutine(buttonWatchCoroutine);
+                buttonWatchCoroutine = null;
+            }
         }
 
         private void Start()
         {
             EnsureAudioSources();
             UpdateMusicForActiveScene();
+            StartButtonAudioTracking(SceneManager.GetActiveScene().name);
         }
 
         private void HandleSceneLoaded(Scene scene, LoadSceneMode mode)
         {
             UpdateMusicForActiveScene(scene.name);
+            StartButtonAudioTracking(scene.name);
         }
 
         public void EnsureAudioSources()
@@ -147,10 +160,23 @@ namespace LegoPuzzle.Runtime
                 musicAudioSource.spatialBlend = 0f; // 2D Sound
             }
 
-            if (buttonClickSound == null)
+            if (uiAudioSource != null)
+            {
+                uiAudioSource.spatialBlend = 0f; // 2D Sound
+            }
+
+            if (buttonClickSound == null || buttonClickSound.name != "Button_Click")
             {
 #if UNITY_EDITOR
-                buttonClickSound = UnityEditor.AssetDatabase.LoadAssetAtPath<AudioClip>("Assets/Sound/610524__pietheanimator45__clicking-lego-brick.wav");
+                AudioClip clickClip = UnityEditor.AssetDatabase.LoadAssetAtPath<AudioClip>("Assets/Sound/Button_Click.wav");
+                if (clickClip != null)
+                {
+                    buttonClickSound = clickClip;
+                }
+                else if (buttonClickSound == null)
+                {
+                    buttonClickSound = UnityEditor.AssetDatabase.LoadAssetAtPath<AudioClip>("Assets/Sound/610524__pietheanimator45__clicking-lego-brick.wav");
+                }
 #endif
             }
 
@@ -326,6 +352,7 @@ namespace LegoPuzzle.Runtime
             MusicEnabled = PlayerPrefs.GetInt(PREFS_MUSIC_ENABLED, 1) == 1;
             VibrationEnabled = PlayerPrefs.GetInt(PREFS_VIBRATION_ENABLED, 1) == 1;
             NotificationsEnabled = PlayerPrefs.GetInt(PREFS_NOTIFICATIONS_ENABLED, 1) == 1;
+            ColorblindModeEnabled = PlayerPrefs.GetInt(PREFS_COLORBLIND_ENABLED, 0) == 1;
             SoundVolume = PlayerPrefs.GetFloat(PREFS_SOUND_VOLUME, 1f);
             MusicVolume = PlayerPrefs.GetFloat(PREFS_MUSIC_VOLUME, 1f);
 
@@ -342,6 +369,7 @@ namespace LegoPuzzle.Runtime
             PlayerPrefs.SetInt(PREFS_MUSIC_ENABLED, MusicEnabled ? 1 : 0);
             PlayerPrefs.SetInt(PREFS_VIBRATION_ENABLED, VibrationEnabled ? 1 : 0);
             PlayerPrefs.SetInt(PREFS_NOTIFICATIONS_ENABLED, NotificationsEnabled ? 1 : 0);
+            PlayerPrefs.SetInt(PREFS_COLORBLIND_ENABLED, ColorblindModeEnabled ? 1 : 0);
             PlayerPrefs.SetFloat(PREFS_SOUND_VOLUME, SoundVolume);
             PlayerPrefs.SetFloat(PREFS_MUSIC_VOLUME, MusicVolume);
             PlayerPrefs.Save();
@@ -387,6 +415,16 @@ namespace LegoPuzzle.Runtime
             NotificationsEnabled = enabled;
             SaveSettings();
             OnSettingsChanged?.Invoke();
+        }
+
+        public void SetColorblindModeEnabled(bool enabled)
+        {
+            if (ColorblindModeEnabled == enabled) return;
+            ColorblindModeEnabled = enabled;
+            SaveSettings();
+            OnColorblindModeChanged?.Invoke(enabled);
+            OnSettingsChanged?.Invoke();
+            if (enabled) TriggerHaptic();
         }
 
         public void SetSoundVolume(float volume)
@@ -435,12 +473,24 @@ namespace LegoPuzzle.Runtime
             }
         }
 
+        private float lastClickSoundTime = -1f;
+
         /// <summary>
         /// Plays standard UI click feedback sound if sound is enabled.
         /// </summary>
-        public void PlayClickSound(float volumeMultiplier = 1f)
+        public void PlayClickSound()
+        {
+            PlayClickSound(1f);
+        }
+
+        /// <summary>
+        /// Plays standard UI click feedback sound if sound is enabled.
+        /// </summary>
+        public void PlayClickSound(float volumeMultiplier)
         {
             if (!SoundEnabled) return;
+            if (Time.unscaledTime - lastClickSoundTime < 0.035f) return;
+            lastClickSoundTime = Time.unscaledTime;
 
             EnsureAudioSources();
             if (uiAudioSource != null && buttonClickSound != null)
@@ -655,6 +705,116 @@ namespace LegoPuzzle.Runtime
                 loader.ResetProgress();
             }
         }
+
+        #region Dynamic Button Audio Tracking
+
+        private readonly HashSet<Button> registeredButtons = new HashSet<Button>();
+        private Coroutine buttonWatchCoroutine;
+
+        /// <summary>
+        /// Starts background tracking of UI buttons for the current scene.
+        /// In Menu scene: ANY button clicked plays Button_Click sound.
+        /// In Game scene: ONLY level exit / pause / menu buttons play Button_Click sound.
+        /// </summary>
+        public void StartButtonAudioTracking(string sceneName = null)
+        {
+            if (buttonWatchCoroutine != null)
+            {
+                StopCoroutine(buttonWatchCoroutine);
+                buttonWatchCoroutine = null;
+            }
+
+            registeredButtons.Clear();
+
+            if (string.IsNullOrEmpty(sceneName))
+            {
+                sceneName = SceneManager.GetActiveScene().name;
+            }
+
+            if (gameObject.activeInHierarchy)
+            {
+                buttonWatchCoroutine = StartCoroutine(ButtonAudioWatchRoutine(sceneName));
+            }
+            else
+            {
+                bool isGameScene = sceneName != null && sceneName.IndexOf("Game", StringComparison.OrdinalIgnoreCase) >= 0;
+                RegisterSceneButtons(isGameScene);
+            }
+        }
+
+        private IEnumerator ButtonAudioWatchRoutine(string sceneName)
+        {
+            bool isGameScene = sceneName != null && sceneName.IndexOf("Game", StringComparison.OrdinalIgnoreCase) >= 0;
+            var waitInterval = new WaitForSecondsRealtime(0.25f);
+
+            // Immediate scan on scene load
+            RegisterSceneButtons(isGameScene);
+
+            while (true)
+            {
+                yield return waitInterval;
+                RegisterSceneButtons(isGameScene);
+            }
+        }
+
+        /// <summary>
+        /// Scans the active scene hierarchy and binds Button_Click feedback.
+        /// </summary>
+        public void RegisterSceneButtons(bool isGameScene)
+        {
+            Scene activeScene = SceneManager.GetActiveScene();
+            if (!activeScene.IsValid() || !activeScene.isLoaded) return;
+
+            GameObject[] roots = activeScene.GetRootGameObjects();
+            for (int r = 0; r < roots.Length; r++)
+            {
+                GameObject root = roots[r];
+                if (root == null) continue;
+
+                Button[] buttons = root.GetComponentsInChildren<Button>(true);
+                for (int b = 0; b < buttons.Length; b++)
+                {
+                    Button btn = buttons[b];
+                    if (btn == null) continue;
+
+                    if (registeredButtons.Add(btn))
+                    {
+                        if (!isGameScene)
+                        {
+                            // In Menu: ANY button plays click sound
+                            btn.onClick.AddListener(PlayClickSound);
+                            UIButtonAudioClick.AttachTo(btn.gameObject);
+                        }
+                        else
+                        {
+                            // In Game: ONLY exit / pause / menu buttons play click sound
+                            if (IsGameExitButton(btn))
+                            {
+                                btn.onClick.AddListener(PlayClickSound);
+                                UIButtonAudioClick.AttachTo(btn.gameObject);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Checks whether a button is an exit / pause / menu return button in Game.
+        /// </summary>
+        public static bool IsGameExitButton(Button btn)
+        {
+            if (btn == null) return false;
+            string name = btn.gameObject.name;
+            return name.IndexOf("Pause", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                   name.IndexOf("Exit", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                   name.IndexOf("Menu", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                   name.IndexOf("Home", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                   name.IndexOf("Leave", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                   name.IndexOf("Quit", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        #endregion
 
         private void OnApplicationQuit()
         {

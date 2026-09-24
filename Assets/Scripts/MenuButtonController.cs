@@ -32,14 +32,55 @@ public class MenuButtonController : MonoBehaviour
         Debug.Log("<color=yellow>MenuButtonController: Progress reset! Next game will start from Level 1.</color>");
     }
 
+    private void Start()
+    {
+        SetupBottomNavigationJellyButtons();
+    }
+
+    /// <summary>
+    /// Configures horizontal jelly squash & stretch animation on bottom navigation buttons (Shop, Main Menu, Play).
+    /// </summary>
+    public void SetupBottomNavigationJellyButtons()
+    {
+        Transform downPanel = transform.Find("DownPanel");
+        if (downPanel == null)
+        {
+            var allTrs = Resources.FindObjectsOfTypeAll<Transform>();
+            for (int i = 0; i < allTrs.Length; i++)
+            {
+                Transform tr = allTrs[i];
+                if (tr != null && tr.name == "DownPanel" && tr.gameObject.scene == gameObject.scene)
+                {
+                    downPanel = tr;
+                    break;
+                }
+            }
+        }
+
+        if (downPanel != null)
+        {
+            var buttons = downPanel.GetComponentsInChildren<Button>(true);
+            for (int i = 0; i < buttons.Length; i++)
+            {
+                Button btn = buttons[i];
+                if (btn != null)
+                {
+                    UIButtonPressEffect.AttachHorizontalJelly(btn.gameObject, 1.25f, 0.80f, 0.45f);
+                }
+            }
+        }
+    }
+
     public void LoadMenu()
     {
+        if (GameSettingsManager.HasInstance) GameSettingsManager.Instance.PlayClickSound();
         Time.timeScale = 1f;
         SceneManager.LoadScene(0);
     }
 
     public void LoadGame()
     {
+        if (GameSettingsManager.HasInstance) GameSettingsManager.Instance.PlayClickSound();
         if (HeartManager.Instance != null && !HeartManager.Instance.HasHearts())
         {
             Debug.LogWarning("<color=red>MenuButtonController: Cannot start game, player has 0 hearts!</color>");
@@ -53,18 +94,21 @@ public class MenuButtonController : MonoBehaviour
 
     public void LoadScene(string sceneName)
     {
+        if (GameSettingsManager.HasInstance) GameSettingsManager.Instance.PlayClickSound();
         Time.timeScale = 1f;
         SceneManager.LoadScene(sceneName);
     }
 
     public void LoadScene(int sceneIndex)
     {
+        if (GameSettingsManager.HasInstance) GameSettingsManager.Instance.PlayClickSound();
         Time.timeScale = 1f;
         SceneManager.LoadScene(sceneIndex);
     }
 
     public void StartGame()
     {
+        if (GameSettingsManager.HasInstance) GameSettingsManager.Instance.PlayClickSound();
         if (HeartManager.Instance != null && !HeartManager.Instance.HasHearts())
         {
             Debug.LogWarning("<color=red>MenuButtonController: Cannot start game, player has 0 hearts!</color>");
@@ -78,6 +122,7 @@ public class MenuButtonController : MonoBehaviour
 
     public void StartGame(string sceneName)
     {
+        if (GameSettingsManager.HasInstance) GameSettingsManager.Instance.PlayClickSound();
         if (HeartManager.Instance != null && !HeartManager.Instance.HasHearts())
         {
             Debug.LogWarning("<color=red>MenuButtonController: Cannot start game, player has 0 hearts!</color>");
@@ -91,6 +136,7 @@ public class MenuButtonController : MonoBehaviour
 
     public void StartGame(int sceneIndex)
     {
+        if (GameSettingsManager.HasInstance) GameSettingsManager.Instance.PlayClickSound();
         if (HeartManager.Instance != null && !HeartManager.Instance.HasHearts())
         {
             Debug.LogWarning("<color=red>MenuButtonController: Cannot start game, player has 0 hearts!</color>");
@@ -104,6 +150,9 @@ public class MenuButtonController : MonoBehaviour
 
     private IEnumerator LoadSceneAsyncRoutine(string sceneName)
     {
+        // Brief pause to allow the horizontal jelly squeeze and bounce to be enjoyed
+        yield return new WaitForSecondsRealtime(0.10f);
+
         if (loadingScreen != null)
         {
             loadingScreen.SetActive(true);
@@ -126,6 +175,9 @@ public class MenuButtonController : MonoBehaviour
 
     private IEnumerator LoadSceneAsyncRoutine(int sceneIndex)
     {
+        // Brief pause to allow the horizontal jelly squeeze and bounce to be enjoyed
+        yield return new WaitForSecondsRealtime(0.10f);
+
         if (loadingScreen != null)
         {
             loadingScreen.SetActive(true);
@@ -144,5 +196,13 @@ public class MenuButtonController : MonoBehaviour
 
             yield return null;
         }
+    }
+
+    /// <summary>
+    /// Opens the Lotto / Slot Machine panel in Menu scene.
+    /// </summary>
+    public void OpenSlotMachine()
+    {
+        SlotMachinePanel.OpenSlotMachine();
     }
 }

@@ -78,6 +78,10 @@ namespace LegoPuzzle.Editor
             }
 
             manager.EnsureAudioSources();
+            if (manager.ButtonClickSound == null || manager.ButtonClickSound.name != "Button_Click")
+            {
+                manager.ButtonClickSound = AssetDatabase.LoadAssetAtPath<AudioClip>("Assets/Sound/Button_Click.wav");
+            }
             if (manager.MenuMusicClip == null)
             {
                 manager.MenuMusicClip = AssetDatabase.LoadAssetAtPath<AudioClip>("Assets/Sound/main-menu.wav");
@@ -95,6 +99,68 @@ namespace LegoPuzzle.Editor
             }
 
             EditorUtility.DisplayDialog("Background Music", "Фонова музика налаштована!\n- Меню: Assets/Sound/main-menu.wav\n- Гра: Assets/Sound/lvlsound.mp3", "OK");
+        }
+
+        [MenuItem("LEGO/Setup Booster Tutorial Dim Overlay in Game Scene", false, 45)]
+        public static void SetupBoosterTutorialDimOverlayInGameScene()
+        {
+            var gameScene = UnityEditor.SceneManagement.EditorSceneManager.OpenScene("Assets/Scenes/Game.unity", UnityEditor.SceneManagement.OpenSceneMode.Single);
+            if (!gameScene.IsValid()) return;
+
+            Canvas canvas = Object.FindAnyObjectByType<Canvas>();
+            if (canvas == null) return;
+
+            Transform existing = canvas.transform.Find("BoosterTutorialDimOverlay");
+            GameObject overlayObj = existing != null ? existing.gameObject : new GameObject("BoosterTutorialDimOverlay");
+            overlayObj.transform.SetParent(canvas.transform, false);
+
+            RectTransform rt = overlayObj.GetComponent<RectTransform>();
+            if (rt == null) rt = overlayObj.AddComponent<RectTransform>();
+            rt.anchorMin = Vector2.zero;
+            rt.anchorMax = Vector2.one;
+            rt.offsetMin = Vector2.zero;
+            rt.offsetMax = Vector2.zero;
+
+            Canvas subCanvas = overlayObj.GetComponent<Canvas>();
+            if (subCanvas == null) subCanvas = overlayObj.AddComponent<Canvas>();
+            subCanvas.overrideSorting = true;
+            subCanvas.sortingOrder = 10;
+
+            if (overlayObj.GetComponent<GraphicRaycaster>() == null)
+            {
+                overlayObj.AddComponent<GraphicRaycaster>();
+            }
+
+            CanvasGroup cg = overlayObj.GetComponent<CanvasGroup>();
+            if (cg == null) cg = overlayObj.AddComponent<CanvasGroup>();
+            cg.alpha = 0f;
+            cg.blocksRaycasts = true;
+            cg.interactable = true;
+
+            Image img = overlayObj.GetComponent<Image>();
+            if (img == null) img = overlayObj.AddComponent<Image>();
+            img.color = Color.black;
+            img.raycastTarget = true;
+
+            Button btn = overlayObj.GetComponent<Button>();
+            if (btn == null) btn = overlayObj.AddComponent<Button>();
+            btn.transition = Selectable.Transition.None;
+
+            overlayObj.SetActive(false);
+
+            LevelLoader loader = Object.FindAnyObjectByType<LevelLoader>();
+            if (loader != null)
+            {
+                BoosterTutorialManager btm = loader.GetComponent<BoosterTutorialManager>();
+                if (btm == null) btm = loader.gameObject.AddComponent<BoosterTutorialManager>();
+                EditorUtility.SetDirty(btm);
+                EditorUtility.SetDirty(loader);
+            }
+
+            EditorUtility.SetDirty(overlayObj);
+            UnityEditor.SceneManagement.EditorSceneManager.MarkSceneDirty(gameScene);
+            UnityEditor.SceneManagement.EditorSceneManager.SaveScene(gameScene);
+            Debug.Log("<color=green>BoosterTutorialDimOverlay successfully configured in Game.unity!</color>");
         }
     }
 }

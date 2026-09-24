@@ -63,6 +63,7 @@ namespace LegoPuzzle.Runtime
 
         private Color originalIconColor = Color.white;
         private Coroutine pulseCoroutine;
+        private Coroutine blockHandCoroutine;
         private bool isExecutingStrike = false;
 
         public static bool IsTargeting { get; private set; } = false;
@@ -232,25 +233,90 @@ namespace LegoPuzzle.Runtime
 
             TutorialHandEffect.Dismiss(); // Приберемо руку з кнопки
 
-            if (levelLoader != null && levelLoader.CurrentLevel != null && levelLoader.CurrentLevel.levelIndex == 4)
+            if (blockHandCoroutine != null) StopCoroutine(blockHandCoroutine);
+            blockHandCoroutine = StartCoroutine(ShowBlockTargetingHandRoutine());
+        }
+
+        private IEnumerator ShowBlockTargetingHandRoutine()
+        {
+            // Чекаємо завершення поточного кадру кліку, щоб жодні інші обробники кнопок не збили руку
+            yield return null;
+
+            if (!IsTargeting) yield break;
+
+            ShowBlockTargetingHand();
+            blockHandCoroutine = null;
+        }
+
+        private void ShowBlockTargetingHand()
+        {
+            if (!IsTargeting) return;
+
+            LegoPieceView targetPiece = null;
+
+            // 1. Спробуємо знайти деталь, яку найкраще порухати
+            if (levelLoader != null)
+            {
+                if (levelLoader.FindBestHintMove(out LegoPieceView hintPiece, out _, out _))
+                {
+                    if (hintPiece != null && hintPiece.gameObject.activeInHierarchy)
+                    {
+                        targetPiece = hintPiece;
+                    }
+                }
+            }
+
+            // 2. Якщо не знайдено, беремо будь-яку активну деталь на полі
+            if (targetPiece == null && levelLoader != null && levelLoader.ActivePieces != null)
+            {
+                foreach (var piece in levelLoader.ActivePieces)
+                {
+                    if (piece != null && piece.gameObject.activeInHierarchy)
+                    {
+                        targetPiece = piece;
+                        break;
+                    }
+                }
+            }
+
+            if (targetPiece == null)
             {
                 var allPieces = FindObjectsByType<LegoPieceView>(FindObjectsSortMode.None);
                 foreach (var piece in allPieces)
                 {
-                    if (piece.gameObject.activeInHierarchy)
+                    if (piece != null && piece.gameObject.activeInHierarchy)
                     {
-                        // Вказуємо на перший-ліпший активний блок
-                        GameObject handPrefab = levelLoader != null ? levelLoader.TutorialHandPrefab : null;
-                        TutorialHandEffect.Show(piece, new Vector2Int(0, 0), 1f, handPrefab);
+                        targetPiece = piece;
                         break;
                     }
                 }
+            }
+
+            if (targetPiece != null)
+            {
+                GameObject handPrefab = levelLoader != null ? levelLoader.TutorialHandPrefab : null;
+#if UNITY_EDITOR
+                if (handPrefab == null)
+                {
+                    handPrefab = UnityEditor.AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Prefabs/tutorial_hand.prefab");
+                }
+#endif
+                float pieceCellSize = levelLoader != null ? levelLoader.CellSize : 1f;
+                TutorialHandEffect.Show(targetPiece, Vector2Int.zero, pieceCellSize, handPrefab);
             }
         }
 
         public void CancelTargeting()
         {
             IsTargeting = false;
+
+            if (blockHandCoroutine != null)
+            {
+                StopCoroutine(blockHandCoroutine);
+                blockHandCoroutine = null;
+            }
+
+            TutorialHandEffect.Dismiss(); // Прибираємо руку-підказку з блоків
 
             if (targetingHintBanner != null)
             {
@@ -285,6 +351,12 @@ namespace LegoPuzzle.Runtime
         public void ExecuteHammerOnPiece(LegoPieceView targetPiece)
         {
             if (targetPiece == null || isExecutingStrike) return;
+
+            if (blockHandCoroutine != null)
+            {
+                StopCoroutine(blockHandCoroutine);
+                blockHandCoroutine = null;
+            }
 
             CancelTargeting();
             TutorialHandEffect.Dismiss(); // Прибираємо руку-підказку після удару

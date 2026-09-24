@@ -48,6 +48,10 @@ namespace LegoPuzzle.Editor
             if (settingsManager != null)
             {
                 settingsManager.EnsureAudioSources();
+                if (settingsManager.ButtonClickSound == null || settingsManager.ButtonClickSound.name != "Button_Click")
+                {
+                    settingsManager.ButtonClickSound = AssetDatabase.LoadAssetAtPath<AudioClip>("Assets/Sound/Button_Click.wav");
+                }
                 if (settingsManager.MenuMusicClip == null)
                 {
                     settingsManager.MenuMusicClip = AssetDatabase.LoadAssetAtPath<AudioClip>("Assets/Sound/main-menu.wav");
@@ -227,13 +231,19 @@ namespace LegoPuzzle.Editor
             Sprite soundIcon = MenuSettingsPanel.LoadAtlasSprite("Assets/300Mind/2D Game UI Kit/Sprites/UI-pack_Sprite_1.png", "UI-pack_Sprite_1_71");
             Sprite musicIcon = MenuSettingsPanel.LoadAtlasSprite("Assets/300Mind/2D Game UI Kit/Sprites/UI-pack_Sprite_1.png", "UI-pack_Sprite_1_73");
             Sprite vibIcon = MenuSettingsPanel.LoadAtlasSprite("Assets/300Mind/2D Game UI Kit/Sprites/UI-pack_Sprite_1.png", "UI-pack_Sprite_1_78");
-            Sprite notifIcon = MenuSettingsPanel.LoadAtlasSprite("Assets/300Mind/2D Game UI Kit/Sprites/UI-pack_Sprite_1.png", "UI-pack_Sprite_1_3");
+            Sprite eyeIcon = MenuSettingsPanel.GetOrCreateEyeIconSprite();
             Sprite rowBgSprite = MenuSettingsPanel.LoadAtlasSprite("Assets/300Mind/2D Game UI Kit/Sprites/UI-pack_Sprite_2.png", "UI-pack_Sprite_2_3");
 
             CreateOrUpdateRow(cardObj.transform, "SoundRow", "Sounds", soundIcon, rowBgSprite, 180f, font);
             CreateOrUpdateRow(cardObj.transform, "MusicRow", "Music", musicIcon, rowBgSprite, 70f, font);
             CreateOrUpdateRow(cardObj.transform, "VibrationRow", "Vibration", vibIcon, rowBgSprite, -40f, font);
-            CreateOrUpdateRow(cardObj.transform, "NotificationsRow", "Notifications", notifIcon, rowBgSprite, -150f, font);
+
+            Transform legacyNotif = cardObj.transform.Find("NotificationsRow");
+            if (legacyNotif != null)
+            {
+                legacyNotif.name = "ColorblindRow";
+            }
+            CreateOrUpdateRow(cardObj.transform, "ColorblindRow", "Color Blind", eyeIcon, rowBgSprite, -150f, font);
 
             // 6. Reset Progress Button
             Transform resetTr = cardObj.transform.Find("ResetProgressButton");
@@ -620,6 +630,106 @@ namespace LegoPuzzle.Editor
             if (font != null) tTMP.font = font;
 
             tObj.SetActive(false);
+        }
+
+        [MenuItem("Tools/Lego/Setup Button Click Audio in Scenes")]
+        public static void SetupButtonClickAudioInScenes()
+        {
+            // 1. Setup in Menu scene
+            var menuScene = UnityEditor.SceneManagement.EditorSceneManager.OpenScene("Assets/Scenes/Menu.unity", UnityEditor.SceneManagement.OpenSceneMode.Single);
+            if (menuScene.IsValid())
+            {
+                AudioClip clickClip = AssetDatabase.LoadAssetAtPath<AudioClip>("Assets/Sound/Button_Click.wav");
+                var manager = Object.FindObjectOfType<GameSettingsManager>();
+                if (manager != null)
+                {
+                    manager.EnsureAudioSources();
+                    manager.ButtonClickSound = clickClip;
+                    EditorUtility.SetDirty(manager);
+                }
+
+                int menuCount = 0;
+                var allButtons = Resources.FindObjectsOfTypeAll<Button>();
+                foreach (var btn in allButtons)
+                {
+                    if (btn != null && btn.gameObject.scene == menuScene)
+                    {
+                        var click = btn.GetComponent<UIButtonAudioClick>();
+                        if (click == null)
+                        {
+                            click = Undo.AddComponent<UIButtonAudioClick>(btn.gameObject);
+                            EditorUtility.SetDirty(btn.gameObject);
+                        }
+                        menuCount++;
+                    }
+                }
+
+                UnityEditor.SceneManagement.EditorSceneManager.MarkSceneDirty(menuScene);
+                UnityEditor.SceneManagement.EditorSceneManager.SaveScene(menuScene);
+                Debug.Log($"<color=green>Menu Scene: Configured {menuCount} buttons with Button_Click audio.</color>");
+            }
+
+            // 2. Setup in Game scene
+            var gameScene = UnityEditor.SceneManagement.EditorSceneManager.OpenScene("Assets/Scenes/Game.unity", UnityEditor.SceneManagement.OpenSceneMode.Single);
+            if (gameScene.IsValid())
+            {
+                int gameCount = 0;
+                var allButtons = Resources.FindObjectsOfTypeAll<Button>();
+                foreach (var btn in allButtons)
+                {
+                    if (btn != null && btn.gameObject.scene == gameScene && GameSettingsManager.IsGameExitButton(btn))
+                    {
+                        var click = btn.GetComponent<UIButtonAudioClick>();
+                        if (click == null)
+                        {
+                            click = Undo.AddComponent<UIButtonAudioClick>(btn.gameObject);
+                            EditorUtility.SetDirty(btn.gameObject);
+                        }
+                        gameCount++;
+                    }
+                }
+
+                UnityEditor.SceneManagement.EditorSceneManager.MarkSceneDirty(gameScene);
+                UnityEditor.SceneManagement.EditorSceneManager.SaveScene(gameScene);
+                Debug.Log($"<color=green>Game Scene: Configured {gameCount} exit buttons with Button_Click audio.</color>");
+            }
+        }
+
+        [MenuItem("Tools/Lego/Setup Bottom Navigation Jelly Buttons")]
+        public static void SetupBottomNavigationJellyButtonsMenu()
+        {
+            var menuScene = UnityEditor.SceneManagement.EditorSceneManager.OpenScene("Assets/Scenes/Menu.unity", UnityEditor.SceneManagement.OpenSceneMode.Single);
+            if (menuScene.IsValid())
+            {
+                var controller = Object.FindObjectOfType<MenuButtonController>();
+                if (controller != null)
+                {
+                    controller.SetupBottomNavigationJellyButtons();
+                }
+
+                var allButtons = Resources.FindObjectsOfTypeAll<Button>();
+                int count = 0;
+                foreach (var btn in allButtons)
+                {
+                    if (btn != null && btn.gameObject.scene == menuScene)
+                    {
+                        string name = btn.gameObject.name.ToLowerInvariant();
+                        Transform parent = btn.transform.parent;
+                        bool isDownPanel = (parent != null && parent.name == "DownPanel");
+
+                        if (isDownPanel || name.Contains("play") || name.Contains("main menu") || name.Contains("shop"))
+                        {
+                            UIButtonPressEffect.AttachHorizontalJelly(btn.gameObject, 1.25f, 0.80f, 0.45f);
+                            EditorUtility.SetDirty(btn.gameObject);
+                            count++;
+                        }
+                    }
+                }
+
+                UnityEditor.SceneManagement.EditorSceneManager.MarkSceneDirty(menuScene);
+                UnityEditor.SceneManagement.EditorSceneManager.SaveScene(menuScene);
+                Debug.Log($"<color=green>Successfully configured horizontal jelly effect on {count} bottom buttons in Menu scene!</color>");
+            }
         }
     }
 }

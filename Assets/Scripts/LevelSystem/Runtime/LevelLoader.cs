@@ -15,6 +15,7 @@ namespace LegoPuzzle.Runtime
         [SerializeField] private LevelData testLevelData;
         [Tooltip("Розмір однієї клітинки сітки (підганяйте під масштаб ваших 3D-моделей)")]
         [SerializeField] private float cellSize = 1f;
+        public float CellSize => cellSize;
 
         [Tooltip("Поворот 3D-моделей блоків (якщо вони лежать горизонтально, ставте -90 по X або 0)")]
         [SerializeField] private Vector3 blockModelRotation = new Vector3(0f, 0f, 0f);
@@ -210,6 +211,7 @@ namespace LegoPuzzle.Runtime
 
         private readonly Dictionary<Vector2Int, GridCellView> spawnedCells = new Dictionary<Vector2Int, GridCellView>();
         private readonly List<LegoPieceView> activePieces = new List<LegoPieceView>();
+        public IReadOnlyList<LegoPieceView> ActivePieces => activePieces;
         private int requiredPiecesToWin = 0;
         private int piecesExited = 0;
         private float lastStepSoundTime = 0f;
@@ -306,6 +308,8 @@ namespace LegoPuzzle.Runtime
                 audioSource.mute = !GameSettingsManager.Instance.SoundEnabled;
                 GameSettingsManager.Instance.OnSettingsChanged -= UpdateAudioFromSettings;
                 GameSettingsManager.Instance.OnSettingsChanged += UpdateAudioFromSettings;
+                GameSettingsManager.Instance.OnColorblindModeChanged -= HandleColorblindModeChanged;
+                GameSettingsManager.Instance.OnColorblindModeChanged += HandleColorblindModeChanged;
             }
         }
 
@@ -317,11 +321,39 @@ namespace LegoPuzzle.Runtime
             }
         }
 
+        private void HandleColorblindModeChanged(bool enabled)
+        {
+            RefreshAllBlockAndGateColors();
+        }
+
+        /// <summary>
+        /// Updates the colors of all active pieces and exit gates in the level (e.g. when toggling Colorblind Mode).
+        /// </summary>
+        public void RefreshAllBlockAndGateColors()
+        {
+            if (activePieces != null)
+            {
+                foreach (var piece in activePieces)
+                {
+                    if (piece != null) piece.RefreshColor();
+                }
+            }
+
+            if (spawnedCells != null)
+            {
+                foreach (var cell in spawnedCells.Values)
+                {
+                    if (cell != null) cell.RefreshGateColor();
+                }
+            }
+        }
+
         private void OnDestroy()
         {
             if (GameSettingsManager.HasInstance)
             {
                 GameSettingsManager.Instance.OnSettingsChanged -= UpdateAudioFromSettings;
+                GameSettingsManager.Instance.OnColorblindModeChanged -= HandleColorblindModeChanged;
             }
         }
 
@@ -569,12 +601,26 @@ namespace LegoPuzzle.Runtime
 
             OnLevelLoaded?.Invoke(levelData.levelIndex);
 
-            // Перевіряємо, чи потрібно показати туторіал
-            if (showTutorialOnFirstLevel && currentLevelIndex == 0 && !HasFirstMoveOccurred)
+            // Перевіряємо, чи є блоки, які одразу стоять впритик до воріт свого кольору
+            CheckAndTriggerAutoExits();
+
+            // Перевіряємо, чи потрібно показати туторіал на 1 рівні
+            EnsureFirstLevelTutorialHand();
+        }
+
+        /// <summary>
+        /// Гарантує відображення руки-підказки на 1-му рівні, доки гравець дійсно не здійснить хід.
+        /// </summary>
+        public void EnsureFirstLevelTutorialHand()
+        {
+            if (showTutorialOnFirstLevel && (currentLevelIndex == 0 || (CurrentLevel != null && CurrentLevel.levelIndex == 1)) && !HasFirstMoveOccurred)
             {
-                if (FindBestHintMove(out LegoPieceView tutorialPiece, out Vector2Int tutorialDelta, out bool _))
+                if (TutorialHandEffect.ActiveInstance == null)
                 {
-                    TutorialHandEffect.Show(tutorialPiece, tutorialDelta, cellSize, tutorialHandPrefab);
+                    if (FindBestHintMove(out LegoPieceView tutorialPiece, out Vector2Int tutorialDelta, out bool _))
+                    {
+                        TutorialHandEffect.Show(tutorialPiece, tutorialDelta, cellSize, tutorialHandPrefab);
+                    }
                 }
             }
         }
@@ -664,6 +710,11 @@ namespace LegoPuzzle.Runtime
 
         public void OnPauseButtonClicked()
         {
+            if (GameSettingsManager.HasInstance)
+            {
+                GameSettingsManager.Instance.PlayClickSound();
+            }
+
             Time.timeScale = 1f;
             if (IsGameplayActive)
             {
@@ -678,6 +729,11 @@ namespace LegoPuzzle.Runtime
 
         public void LoadMenuScene()
         {
+            if (GameSettingsManager.HasInstance)
+            {
+                GameSettingsManager.Instance.PlayClickSound();
+            }
+
             Time.timeScale = 1f;
             if (IsGameplayActive)
             {
@@ -1261,8 +1317,15 @@ namespace LegoPuzzle.Runtime
             if (piece == null || piece.PieceData == null) return false;
             if (piece.PieceData.moveRestriction == MoveRestriction.Locked) return false;
 
-            var occupied = piece.GetCurrentOccupiedCells();
-            if (occupied == null || occupied.Count == 0) return false;
+            var offsets = piece.PieceData.shape != null
+                ? piece.PieceData.shape.GetRotatedOffsets(piece.PieceData.rotationSteps)
+                : new List<Vector2Int> { Vector2Int.zero };
+
+            List<Vector2Int> occupied = new List<Vector2Int>(offsets.Count);
+            foreach (var offset in offsets)
+            {
+                occupied.Add(currentOrigin + offset);
+            }
 
             Color pieceColor = piece.PieceData.GetColor();
             BlockColorType pieceColorType = piece.PieceData.colorType;
@@ -1284,7 +1347,7 @@ namespace LegoPuzzle.Runtime
                 if (piece.PieceData.moveRestriction == MoveRestriction.VerticalOnly && (dir == ExitDirection.Left || dir == ExitDirection.Right))
                     continue;
 
-                if (CanPieceExitInDirection(occupied, pieceColorType, pieceColor, dir))
+                if (CanPieceExitInDirection(piece, currentOrigin, occupied, pieceColorType, pieceColor, dir))
                 {
                     exitDirection = dir;
                     return true;
@@ -1294,7 +1357,7 @@ namespace LegoPuzzle.Runtime
             return false;
         }
 
-        private bool CanPieceExitInDirection(List<Vector2Int> occupied, BlockColorType pieceColorType, Color pieceColor, ExitDirection dir)
+        private bool CanPieceExitInDirection(LegoPieceView piece, Vector2Int origin, List<Vector2Int> occupied, BlockColorType pieceColorType, Color pieceColor, ExitDirection dir)
         {
             if (occupied == null || occupied.Count == 0) return false;
 
@@ -1302,7 +1365,6 @@ namespace LegoPuzzle.Runtime
             {
                 case ExitDirection.Up:
                 {
-                    // Знаходимо максимальний Y серед усіх клітинок деталі
                     int maxY = int.MinValue;
                     HashSet<int> occupiedCols = new HashSet<int>();
                     foreach (var cell in occupied)
@@ -1311,21 +1373,43 @@ namespace LegoPuzzle.Runtime
                         occupiedCols.Add(cell.x);
                     }
 
-                    // Уся ширина деталі (всі зайняті колонки) на лінії maxY повинна відповідати верхнім воротам
+                    // Варіант 1: Деталь вже знаходиться на лінії воріт (maxY)
+                    bool currentMatch = true;
                     foreach (int x in occupiedCols)
                     {
                         Vector2Int gatePos = new Vector2Int(x, maxY);
                         if (!IsMatchingExitGate(gatePos, dir, pieceColorType, pieceColor))
                         {
-                            return false;
+                            currentMatch = false;
+                            break;
                         }
                     }
-                    return true;
+                    if (currentMatch) return true;
+
+                    // Варіант 2: Деталь стоїть поруч впритик (на сусідній лінії maxY + 1)
+                    bool adjacentMatch = true;
+                    foreach (int x in occupiedCols)
+                    {
+                        Vector2Int gatePos = new Vector2Int(x, maxY + 1);
+                        if (!IsMatchingExitGate(gatePos, dir, pieceColorType, pieceColor))
+                        {
+                            adjacentMatch = false;
+                            break;
+                        }
+                    }
+                    if (adjacentMatch)
+                    {
+                        if (CanMovePieceTo(piece, origin + Vector2Int.up))
+                        {
+                            return true;
+                        }
+                    }
+
+                    return false;
                 }
 
                 case ExitDirection.Down:
                 {
-                    // Знаходимо мінімальний Y серед усіх клітинок деталі
                     int minY = int.MaxValue;
                     HashSet<int> occupiedCols = new HashSet<int>();
                     foreach (var cell in occupied)
@@ -1334,21 +1418,43 @@ namespace LegoPuzzle.Runtime
                         occupiedCols.Add(cell.x);
                     }
 
-                    // Уся ширина деталі (всі зайняті колонки) на лінії minY повинна відповідати нижнім воротам
+                    // Варіант 1: Деталь вже знаходиться на лінії воріт (minY)
+                    bool currentMatch = true;
                     foreach (int x in occupiedCols)
                     {
                         Vector2Int gatePos = new Vector2Int(x, minY);
                         if (!IsMatchingExitGate(gatePos, dir, pieceColorType, pieceColor))
                         {
-                            return false;
+                            currentMatch = false;
+                            break;
                         }
                     }
-                    return true;
+                    if (currentMatch) return true;
+
+                    // Варіант 2: Деталь стоїть поруч впритик (на сусідній лінії minY - 1)
+                    bool adjacentMatch = true;
+                    foreach (int x in occupiedCols)
+                    {
+                        Vector2Int gatePos = new Vector2Int(x, minY - 1);
+                        if (!IsMatchingExitGate(gatePos, dir, pieceColorType, pieceColor))
+                        {
+                            adjacentMatch = false;
+                            break;
+                        }
+                    }
+                    if (adjacentMatch)
+                    {
+                        if (CanMovePieceTo(piece, origin + Vector2Int.down))
+                        {
+                            return true;
+                        }
+                    }
+
+                    return false;
                 }
 
                 case ExitDirection.Right:
                 {
-                    // Знаходимо максимальний X серед усіх клітинок деталі
                     int maxX = int.MinValue;
                     HashSet<int> occupiedRows = new HashSet<int>();
                     foreach (var cell in occupied)
@@ -1357,21 +1463,43 @@ namespace LegoPuzzle.Runtime
                         occupiedRows.Add(cell.y);
                     }
 
-                    // Уся висота деталі (всі зайняті рядки) на лінії maxX повинна відповідати правим воротам
+                    // Варіант 1: Деталь вже на лінії воріт (maxX)
+                    bool currentMatch = true;
                     foreach (int y in occupiedRows)
                     {
                         Vector2Int gatePos = new Vector2Int(maxX, y);
                         if (!IsMatchingExitGate(gatePos, dir, pieceColorType, pieceColor))
                         {
-                            return false;
+                            currentMatch = false;
+                            break;
                         }
                     }
-                    return true;
+                    if (currentMatch) return true;
+
+                    // Варіант 2: Деталь впритик поруч (maxX + 1)
+                    bool adjacentMatch = true;
+                    foreach (int y in occupiedRows)
+                    {
+                        Vector2Int gatePos = new Vector2Int(maxX + 1, y);
+                        if (!IsMatchingExitGate(gatePos, dir, pieceColorType, pieceColor))
+                        {
+                            adjacentMatch = false;
+                            break;
+                        }
+                    }
+                    if (adjacentMatch)
+                    {
+                        if (CanMovePieceTo(piece, origin + Vector2Int.right))
+                        {
+                            return true;
+                        }
+                    }
+
+                    return false;
                 }
 
                 case ExitDirection.Left:
                 {
-                    // Знаходимо мінімальний X серед усіх клітинок деталі
                     int minX = int.MaxValue;
                     HashSet<int> occupiedRows = new HashSet<int>();
                     foreach (var cell in occupied)
@@ -1380,16 +1508,39 @@ namespace LegoPuzzle.Runtime
                         occupiedRows.Add(cell.y);
                     }
 
-                    // Уся висота деталі (всі зайняті рядки) на лінії minX повинна відповідати лівим воротам
+                    // Варіант 1: Деталь вже на лінії воріт (minX)
+                    bool currentMatch = true;
                     foreach (int y in occupiedRows)
                     {
                         Vector2Int gatePos = new Vector2Int(minX, y);
                         if (!IsMatchingExitGate(gatePos, dir, pieceColorType, pieceColor))
                         {
-                            return false;
+                            currentMatch = false;
+                            break;
                         }
                     }
-                    return true;
+                    if (currentMatch) return true;
+
+                    // Варіант 2: Деталь впритик поруч (minX - 1)
+                    bool adjacentMatch = true;
+                    foreach (int y in occupiedRows)
+                    {
+                        Vector2Int gatePos = new Vector2Int(minX - 1, y);
+                        if (!IsMatchingExitGate(gatePos, dir, pieceColorType, pieceColor))
+                        {
+                            adjacentMatch = false;
+                            break;
+                        }
+                    }
+                    if (adjacentMatch)
+                    {
+                        if (CanMovePieceTo(piece, origin + Vector2Int.left))
+                        {
+                            return true;
+                        }
+                    }
+
+                    return false;
                 }
             }
 
@@ -1421,6 +1572,79 @@ namespace LegoPuzzle.Runtime
             return Mathf.Abs(a.r - b.r) < 0.2f &&
                    Mathf.Abs(a.g - b.g) < 0.2f &&
                    Mathf.Abs(a.b - b.b) < 0.2f;
+        }
+
+        /// <summary>
+        /// Сповіщає ворота, через які виходить блок, про запуск соковитої анімації (сплеск, спалах, ударна хвиля).
+        /// </summary>
+        public void NotifyGateReaction(LegoPieceView piece, ExitDirection dir)
+        {
+            if (piece == null || piece.PieceData == null) return;
+            var occupied = piece.GetCurrentOccupiedCells();
+            if (occupied == null || occupied.Count == 0) return;
+
+            Color pieceColor = piece.PieceData.GetColor();
+
+            HashSet<GridCellView> triggeredGates = new HashSet<GridCellView>();
+            foreach (var cell in occupied)
+            {
+                Vector2Int checkPos = dir switch
+                {
+                    ExitDirection.Up => new Vector2Int(cell.x, cell.y + 1),
+                    ExitDirection.Down => new Vector2Int(cell.x, cell.y - 1),
+                    ExitDirection.Left => new Vector2Int(cell.x - 1, cell.y),
+                    ExitDirection.Right => new Vector2Int(cell.x + 1, cell.y),
+                    _ => cell
+                };
+
+                if (spawnedCells.TryGetValue(checkPos, out GridCellView gateView))
+                {
+                    if ((gateView.CellType == CellType.ExitGate || gateView.CellType == CellType.HalfExitGate) && triggeredGates.Add(gateView))
+                    {
+                        gateView.PlayGateExitReaction(dir, pieceColor);
+                    }
+                }
+                else if (spawnedCells.TryGetValue(cell, out GridCellView curGateView))
+                {
+                    if ((curGateView.CellType == CellType.ExitGate || curGateView.CellType == CellType.HalfExitGate) && triggeredGates.Add(curGateView))
+                    {
+                        curGateView.PlayGateExitReaction(dir, pieceColor);
+                    }
+                }
+            }
+        }
+
+        private Coroutine autoExitCoroutine;
+
+        /// <summary>
+        /// Автоматично перевіряє всі блоки на полі. Якщо блок стоїть поруч впритик до відповідних воріт напряму,
+        /// він виводиться негайно без зайвих дій гравця.
+        /// </summary>
+        public void CheckAndTriggerAutoExits()
+        {
+            if (!gameObject.activeInHierarchy || isLevelWon) return;
+            if (autoExitCoroutine != null) StopCoroutine(autoExitCoroutine);
+            autoExitCoroutine = StartCoroutine(AutoExitRoutine());
+        }
+
+        private IEnumerator AutoExitRoutine()
+        {
+            yield return new WaitForSeconds(0.08f);
+
+            for (int i = 0; i < activePieces.Count; i++)
+            {
+                var piece = activePieces[i];
+                if (piece != null && piece.gameObject.activeSelf && !piece.IsExiting)
+                {
+                    if (CheckIfPieceExits(piece, piece.CurrentOrigin, out ExitDirection dir))
+                    {
+                        piece.TriggerAutoExit(dir);
+                        yield return new WaitForSeconds(0.14f);
+                    }
+                }
+            }
+
+            autoExitCoroutine = null;
         }
 
         private int moveSoundToggle = 0;
@@ -2263,6 +2487,10 @@ namespace LegoPuzzle.Runtime
                 {
                     StartCoroutine(ShowWinPanelDelayed(winPanelDelay));
                 }
+            }
+            else
+            {
+                CheckAndTriggerAutoExits();
             }
         }
 
