@@ -99,29 +99,30 @@ namespace LegoPuzzle.Runtime
         }
 
         /// <summary>
-        /// Loads saved heart count and recovery timestamp, initializing with max hearts on first run.
+        /// Loads saved heart count and recovery timestamp from SaveDataService.
         /// </summary>
         private void LoadState()
         {
-            if (!PlayerPrefs.HasKey(PREFS_INIT_FLAG))
+            if (SaveDataService.Instance != null && SaveDataService.Instance.Data != null)
+            {
+                CurrentHearts = Mathf.Clamp(SaveDataService.Instance.Data.hearts, 0, maxHearts);
+                nextRecoveryUtcTicks = SaveDataService.Instance.Data.nextHeartRecoveryUtcTicks;
+            }
+            else
             {
                 CurrentHearts = maxHearts;
                 nextRecoveryUtcTicks = 0;
-                PlayerPrefs.SetInt(PREFS_INIT_FLAG, 1);
-                SaveState();
-                return;
             }
-
-            CurrentHearts = Mathf.Clamp(PlayerPrefs.GetInt(PREFS_HEARTS, maxHearts), 0, maxHearts);
-            string savedTicks = PlayerPrefs.GetString(PREFS_NEXT_RECOVERY, "0");
-            long.TryParse(savedTicks, out nextRecoveryUtcTicks);
         }
 
         private void SaveState()
         {
-            PlayerPrefs.SetInt(PREFS_HEARTS, CurrentHearts);
-            PlayerPrefs.SetString(PREFS_NEXT_RECOVERY, nextRecoveryUtcTicks.ToString());
-            PlayerPrefs.Save();
+            if (SaveDataService.Instance != null && SaveDataService.Instance.Data != null)
+            {
+                SaveDataService.Instance.Data.hearts = CurrentHearts;
+                SaveDataService.Instance.Data.nextHeartRecoveryUtcTicks = nextRecoveryUtcTicks;
+                SaveDataService.Instance.Save();
+            }
         }
 
         /// <summary>
@@ -313,13 +314,15 @@ namespace LegoPuzzle.Runtime
         [ContextMenu("Reset Saved Hearts Progress")]
         public void EditorResetPrefs()
         {
-            PlayerPrefs.DeleteKey(PREFS_INIT_FLAG);
-            PlayerPrefs.DeleteKey(PREFS_HEARTS);
-            PlayerPrefs.DeleteKey(PREFS_NEXT_RECOVERY);
-            PlayerPrefs.Save();
+            if (SaveDataService.Instance != null && SaveDataService.Instance.Data != null)
+            {
+                SaveDataService.Instance.Data.hearts = maxHearts;
+                SaveDataService.Instance.Data.nextHeartRecoveryUtcTicks = 0;
+                SaveDataService.Instance.Save();
+            }
             LoadState();
             OnHeartsChanged?.Invoke(CurrentHearts, maxHearts);
-            Debug.Log("<color=yellow>HeartManager: PlayerPrefs reset to default!</color>");
+            Debug.Log("<color=yellow>HeartManager: Hearts reset to default via SaveDataService!</color>");
         }
         #endregion
     }

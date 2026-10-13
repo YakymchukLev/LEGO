@@ -243,8 +243,7 @@ namespace LegoPuzzle.Runtime
         {
             if (toastBanner == null)
             {
-                Canvas canvas = GetComponentInParent<Canvas>();
-                if (canvas == null) canvas = FindAnyObjectByType<Canvas>();
+                Canvas canvas = FindMainCanvas();
                 if (canvas != null)
                 {
                     toastBanner = CreateRuntimeToast(canvas);
@@ -296,19 +295,49 @@ namespace LegoPuzzle.Runtime
             toastBanner.SetActive(false);
         }
 
+        private Canvas FindMainCanvas()
+        {
+            Canvas canvas = GetComponentInParent<Canvas>();
+            if (canvas != null && !canvas.name.Contains("Dev")) return canvas;
+
+            Canvas[] allCanvases = FindObjectsByType<Canvas>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            foreach (var c in allCanvases)
+            {
+                if (c == null) continue;
+                if (c.name.Contains("Dev")) continue;
+                if (c.transform.Find("DownPanel") != null ||
+                    c.transform.Find("HeartsWidget") != null ||
+                    c.transform.Find("GemsWidget") != null ||
+                    c.transform.Find("CoinsWidget") != null ||
+                    c.transform.Find("SettingsButton") != null)
+                {
+                    return c;
+                }
+            }
+
+            foreach (var c in allCanvases)
+            {
+                if (c != null && !c.name.Contains("Dev") && c.name == "Canvas")
+                    return c;
+            }
+
+            foreach (var c in allCanvases)
+            {
+                if (c != null && !c.name.Contains("Dev"))
+                    return c;
+            }
+
+            return null;
+        }
+
         /// <summary>
         /// Links existing hierarchy elements if present on scene, or creates clean horizontal row [Heart] [5] [FULL].
         /// </summary>
         public void EnsureUIHierarchy()
         {
-            Canvas canvas = GetComponentInParent<Canvas>();
-            if (canvas == null) canvas = FindAnyObjectByType<Canvas>();
+            Canvas canvas = FindMainCanvas();
             if (canvas == null) return;
-
-            if (Application.isPlaying && canvas.GetComponent<MenuCoinsUI>() == null && FindAnyObjectByType<MenuCoinsUI>() == null)
-            {
-                canvas.gameObject.AddComponent<MenuCoinsUI>();
-            }
+            if (canvas.name.Contains("Dev") || gameObject.name.Contains("Dev")) return;
 
             // 1. Look for pre-existing HeartsWidget in scene
             if (widgetContainer == null)

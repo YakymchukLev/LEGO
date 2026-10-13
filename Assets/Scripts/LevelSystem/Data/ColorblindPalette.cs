@@ -23,6 +23,10 @@ namespace LegoPuzzle.Data
                 {
                     return Runtime.GameSettingsManager.Instance.ColorblindModeEnabled;
                 }
+                if (Runtime.SaveDataService.Instance != null && Runtime.SaveDataService.Instance.Data != null && Runtime.SaveDataService.Instance.Data.settings != null)
+                {
+                    return Runtime.SaveDataService.Instance.Data.settings.colorblindModeEnabled;
+                }
                 return PlayerPrefs.GetInt(PREFS_COLORBLIND_ENABLED, 0) == 1;
             }
         }

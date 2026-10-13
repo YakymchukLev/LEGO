@@ -171,7 +171,7 @@ namespace LegoPuzzle.Runtime
                     Canvas canvas = FindAnyObjectByType<Canvas>();
                     if (canvas != null)
                     {
-                        GameObject shopObj = new GameObject("BoosterShopPanel");
+                        GameObject shopObj = new GameObject("BoosterShopPanel", typeof(RectTransform));
                         shopObj.transform.SetParent(canvas.transform, false);
                         Instance = shopObj.AddComponent<BoosterShopPanel>();
                     }
@@ -252,6 +252,11 @@ namespace LegoPuzzle.Runtime
             if (coinsPriceTMP != null)
             {
                 coinsPriceTMP.text = $"BUY ({price})";
+            }
+
+            if (buyWithCoinsButton != null)
+            {
+                AlignCoinButtonContent(buyWithCoinsButton.transform, GetDefaultTMPFont());
             }
 
             if (adButtonTMP != null)
@@ -417,16 +422,40 @@ namespace LegoPuzzle.Runtime
             switch (currentBoosterType)
             {
                 case BoosterType.Freeze:
-                    TimeFreezeBooster freeze = FindAnyObjectByType<TimeFreezeBooster>();
-                    if (freeze != null) freeze.AddCharges(count);
+                    TimeFreezeBooster freeze = FindAnyObjectByType<TimeFreezeBooster>(FindObjectsInactive.Include);
+                    if (freeze != null)
+                    {
+                        freeze.AddCharges(count);
+                    }
+                    else if (SaveDataService.Instance != null && SaveDataService.Instance.Data != null)
+                    {
+                        SaveDataService.Instance.Data.freezeCharges += count;
+                        SaveDataService.Instance.Save();
+                    }
                     break;
                 case BoosterType.Hammer:
-                    HammerBooster hammer = FindAnyObjectByType<HammerBooster>();
-                    if (hammer != null) hammer.AddCharges(count);
+                    HammerBooster hammer = FindAnyObjectByType<HammerBooster>(FindObjectsInactive.Include);
+                    if (hammer != null)
+                    {
+                        hammer.AddCharges(count);
+                    }
+                    else if (SaveDataService.Instance != null && SaveDataService.Instance.Data != null)
+                    {
+                        SaveDataService.Instance.Data.hammerCharges += count;
+                        SaveDataService.Instance.Save();
+                    }
                     break;
                 case BoosterType.Hint:
-                    HintBooster hint = FindAnyObjectByType<HintBooster>();
-                    if (hint != null) hint.AddCharges(count);
+                    HintBooster hint = FindAnyObjectByType<HintBooster>(FindObjectsInactive.Include);
+                    if (hint != null)
+                    {
+                        hint.AddCharges(count);
+                    }
+                    else if (SaveDataService.Instance != null && SaveDataService.Instance.Data != null)
+                    {
+                        SaveDataService.Instance.Data.hintCharges += count;
+                        SaveDataService.Instance.Save();
+                    }
                     break;
             }
         }
@@ -455,10 +484,14 @@ namespace LegoPuzzle.Runtime
                         result = ExtractIconFromBooster(freeze.transform);
                         if (result != null) return result;
                     }
+                    result = Resources.Load<Sprite>("Sprites/image-removebg-preview(1)");
 #if UNITY_EDITOR
-                    result = UnityEditor.AssetDatabase.LoadAssetAtPath<Sprite>("Assets/Sprites/image-removebg-preview(1).png");
-                    if (result != null) return result;
+                    if (result == null)
+                    {
+                        result = UnityEditor.AssetDatabase.LoadAssetAtPath<Sprite>("Assets/Sprites/image-removebg-preview(1).png");
+                    }
 #endif
+                    if (result != null) return result;
                     break;
 
                 case BoosterType.Hammer:
@@ -469,10 +502,14 @@ namespace LegoPuzzle.Runtime
                         result = ExtractIconFromBooster(hammer.transform);
                         if (result != null) return result;
                     }
+                    result = Resources.Load<Sprite>("Sprites/image-removebg-preview");
 #if UNITY_EDITOR
-                    result = UnityEditor.AssetDatabase.LoadAssetAtPath<Sprite>("Assets/Sprites/image-removebg-preview.png");
-                    if (result != null) return result;
+                    if (result == null)
+                    {
+                        result = UnityEditor.AssetDatabase.LoadAssetAtPath<Sprite>("Assets/Sprites/image-removebg-preview.png");
+                    }
 #endif
+                    if (result != null) return result;
                     break;
 
                 case BoosterType.Hint:
@@ -483,10 +520,14 @@ namespace LegoPuzzle.Runtime
                         result = ExtractIconFromBooster(hint.transform);
                         if (result != null) return result;
                     }
+                    result = Resources.Load<Sprite>("Sprites/image-removebg-preview(2)");
 #if UNITY_EDITOR
-                    result = UnityEditor.AssetDatabase.LoadAssetAtPath<Sprite>("Assets/Sprites/image-removebg-preview(2).png");
-                    if (result != null) return result;
+                    if (result == null)
+                    {
+                        result = UnityEditor.AssetDatabase.LoadAssetAtPath<Sprite>("Assets/Sprites/image-removebg-preview(2).png");
+                    }
 #endif
+                    if (result != null) return result;
                     break;
             }
             return null;
@@ -634,9 +675,9 @@ namespace LegoPuzzle.Runtime
             }
             else
             {
-                GameObject backdrop = new GameObject("Backdrop");
+                GameObject backdrop = new GameObject("Backdrop", typeof(RectTransform));
                 backdrop.transform.SetParent(transform, false);
-                RectTransform bdRt = backdrop.AddComponent<RectTransform>();
+                RectTransform bdRt = backdrop.GetComponent<RectTransform>();
                 bdRt.anchorMin = Vector2.zero;
                 bdRt.anchorMax = Vector2.one;
                 bdRt.offsetMin = Vector2.zero;
@@ -648,9 +689,9 @@ namespace LegoPuzzle.Runtime
             }
 
             // Central Dialog Card (620 x 780)
-            GameObject card = new GameObject("DialogCard");
+            GameObject card = new GameObject("DialogCard", typeof(RectTransform));
             card.transform.SetParent(transform, false);
-            dialogCard = card.AddComponent<RectTransform>();
+            dialogCard = card.GetComponent<RectTransform>();
             dialogCard.anchorMin = new Vector2(0.5f, 0.5f);
             dialogCard.anchorMax = new Vector2(0.5f, 0.5f);
             dialogCard.pivot = new Vector2(0.5f, 0.5f);
@@ -669,9 +710,9 @@ namespace LegoPuzzle.Runtime
             TMP_FontAsset defaultFont = GetDefaultTMPFont();
 
             // Close Button (X) at Top-Right
-            GameObject closeObj = new GameObject("CloseButton");
+            GameObject closeObj = new GameObject("CloseButton", typeof(RectTransform));
             closeObj.transform.SetParent(dialogCard, false);
-            RectTransform closeRt = closeObj.AddComponent<RectTransform>();
+            RectTransform closeRt = closeObj.GetComponent<RectTransform>();
             closeRt.anchorMin = new Vector2(1f, 1f);
             closeRt.anchorMax = new Vector2(1f, 1f);
             closeRt.pivot = new Vector2(1f, 1f);
@@ -685,9 +726,9 @@ namespace LegoPuzzle.Runtime
             closeButton = closeObj.AddComponent<Button>();
             UIButtonPressEffect.AttachTo(closeObj);
 
-            GameObject closeTextObj = new GameObject("XText");
+            GameObject closeTextObj = new GameObject("XText", typeof(RectTransform));
             closeTextObj.transform.SetParent(closeObj.transform, false);
-            RectTransform ctRt = closeTextObj.AddComponent<RectTransform>();
+            RectTransform ctRt = closeTextObj.GetComponent<RectTransform>();
             ctRt.anchorMin = Vector2.zero;
             ctRt.anchorMax = Vector2.one;
             ctRt.offsetMin = Vector2.zero;
@@ -701,9 +742,9 @@ namespace LegoPuzzle.Runtime
             ctTMP.text = "X";
 
             // Header Title
-            GameObject titleObj = new GameObject("TitleText");
+            GameObject titleObj = new GameObject("TitleText", typeof(RectTransform));
             titleObj.transform.SetParent(dialogCard, false);
-            RectTransform titleRt = titleObj.AddComponent<RectTransform>();
+            RectTransform titleRt = titleObj.GetComponent<RectTransform>();
             titleRt.anchorMin = new Vector2(0.5f, 1f);
             titleRt.anchorMax = new Vector2(0.5f, 1f);
             titleRt.pivot = new Vector2(0.5f, 1f);
@@ -718,9 +759,9 @@ namespace LegoPuzzle.Runtime
             titleTMP.text = "BOOSTER SHOP";
 
             // Booster Icon Preview Circle
-            GameObject iconBg = new GameObject("IconContainer");
+            GameObject iconBg = new GameObject("IconContainer", typeof(RectTransform));
             iconBg.transform.SetParent(dialogCard, false);
-            RectTransform iconBgRt = iconBg.AddComponent<RectTransform>();
+            RectTransform iconBgRt = iconBg.GetComponent<RectTransform>();
             iconBgRt.anchorMin = new Vector2(0.5f, 1f);
             iconBgRt.anchorMax = new Vector2(0.5f, 1f);
             iconBgRt.pivot = new Vector2(0.5f, 1f);
@@ -732,9 +773,9 @@ namespace LegoPuzzle.Runtime
             iconBgImg.type = Image.Type.Sliced;
             iconBgImg.color = new Color(0.18f, 0.22f, 0.33f, 1f);
 
-            GameObject iconObj = new GameObject("BoosterIcon");
+            GameObject iconObj = new GameObject("BoosterIcon", typeof(RectTransform));
             iconObj.transform.SetParent(iconBg.transform, false);
-            RectTransform iconRt = iconObj.AddComponent<RectTransform>();
+            RectTransform iconRt = iconObj.GetComponent<RectTransform>();
             iconRt.anchorMin = new Vector2(0.5f, 0.5f);
             iconRt.anchorMax = new Vector2(0.5f, 0.5f);
             iconRt.pivot = new Vector2(0.5f, 0.5f);
@@ -744,9 +785,9 @@ namespace LegoPuzzle.Runtime
             boosterIconImage.preserveAspect = true;
 
             // Description text
-            GameObject descObj = new GameObject("DescText");
+            GameObject descObj = new GameObject("DescText", typeof(RectTransform));
             descObj.transform.SetParent(dialogCard, false);
-            RectTransform descRt = descObj.AddComponent<RectTransform>();
+            RectTransform descRt = descObj.GetComponent<RectTransform>();
             descRt.anchorMin = new Vector2(0.5f, 1f);
             descRt.anchorMax = new Vector2(0.5f, 1f);
             descRt.pivot = new Vector2(0.5f, 1f);
@@ -758,16 +799,16 @@ namespace LegoPuzzle.Runtime
             descriptionTMP.enableAutoSizing = true;
             descriptionTMP.fontSizeMin = 16f;
             descriptionTMP.fontSizeMax = 24f;
-            descriptionTMP.enableWordWrapping = true;
+            descriptionTMP.textWrappingMode = TextWrappingModes.Normal;
             descriptionTMP.overflowMode = TextOverflowModes.Ellipsis;
             descriptionTMP.alignment = TextAlignmentOptions.Center;
             descriptionTMP.color = new Color(0.85f, 0.90f, 0.95f, 1f);
             descriptionTMP.text = "Booster description and effect on board";
 
             // Charges badge (pill container + child text)
-            GameObject badgeObj = new GameObject("ChargesBadge");
+            GameObject badgeObj = new GameObject("ChargesBadge", typeof(RectTransform));
             badgeObj.transform.SetParent(dialogCard, false);
-            RectTransform badgeRt = badgeObj.AddComponent<RectTransform>();
+            RectTransform badgeRt = badgeObj.GetComponent<RectTransform>();
             badgeRt.anchorMin = new Vector2(0.5f, 1f);
             badgeRt.anchorMax = new Vector2(0.5f, 1f);
             badgeRt.pivot = new Vector2(0.5f, 1f);
@@ -778,9 +819,9 @@ namespace LegoPuzzle.Runtime
             badgeImg.type = Image.Type.Sliced;
             badgeImg.color = new Color(0.20f, 0.42f, 0.76f, 0.90f);
 
-            GameObject badgeTxtObj = new GameObject("BadgeText");
+            GameObject badgeTxtObj = new GameObject("BadgeText", typeof(RectTransform));
             badgeTxtObj.transform.SetParent(badgeObj.transform, false);
-            RectTransform btRt = badgeTxtObj.AddComponent<RectTransform>();
+            RectTransform btRt = badgeTxtObj.GetComponent<RectTransform>();
             btRt.anchorMin = Vector2.zero;
             btRt.anchorMax = Vector2.one;
             btRt.offsetMin = Vector2.zero;
@@ -794,9 +835,9 @@ namespace LegoPuzzle.Runtime
             chargesBadgeTMP.text = "+3 CHARGES";
 
             // Button 1: Buy with Coins (Green Action Button)
-            GameObject coinBtnObj = new GameObject("BuyWithCoinsButton");
+            GameObject coinBtnObj = new GameObject("BuyWithCoinsButton", typeof(RectTransform));
             coinBtnObj.transform.SetParent(dialogCard, false);
-            RectTransform cBtnRt = coinBtnObj.AddComponent<RectTransform>();
+            RectTransform cBtnRt = coinBtnObj.GetComponent<RectTransform>();
             cBtnRt.anchorMin = new Vector2(0.5f, 0f);
             cBtnRt.anchorMax = new Vector2(0.5f, 0f);
             cBtnRt.pivot = new Vector2(0.5f, 0f);
@@ -810,39 +851,13 @@ namespace LegoPuzzle.Runtime
             buyWithCoinsButton = coinBtnObj.AddComponent<Button>();
             UIButtonPressEffect.AttachTo(coinBtnObj);
 
-            // Button Coin Icon (54x54)
-            GameObject bCoinIconObj = new GameObject("CoinIcon");
-            bCoinIconObj.transform.SetParent(coinBtnObj.transform, false);
-            RectTransform bciRt = bCoinIconObj.AddComponent<RectTransform>();
-            bciRt.anchorMin = new Vector2(0f, 0.5f);
-            bciRt.anchorMax = new Vector2(0f, 0.5f);
-            bciRt.pivot = new Vector2(0f, 0.5f);
-            bciRt.anchoredPosition = new Vector2(35f, 0f);
-            bciRt.sizeDelta = new Vector2(54f, 54f);
-            buttonCoinIcon = bCoinIconObj.AddComponent<Image>();
-            buttonCoinIcon.sprite = GetCoinSprite();
-            buttonCoinIcon.preserveAspect = true;
-
-            // Button Price Text
-            GameObject bCoinTextObj = new GameObject("PriceText");
-            bCoinTextObj.transform.SetParent(coinBtnObj.transform, false);
-            RectTransform bctRt = bCoinTextObj.AddComponent<RectTransform>();
-            bctRt.anchorMin = Vector2.zero;
-            bctRt.anchorMax = Vector2.one;
-            bctRt.offsetMin = new Vector2(100f, 0f);
-            bctRt.offsetMax = new Vector2(-20f, 0f);
-            coinsPriceTMP = bCoinTextObj.AddComponent<TextMeshProUGUI>();
-            if (defaultFont != null) coinsPriceTMP.font = defaultFont;
-            coinsPriceTMP.fontSize = 36f;
-            coinsPriceTMP.fontStyle = FontStyles.Bold;
-            coinsPriceTMP.alignment = TextAlignmentOptions.MidlineLeft;
-            coinsPriceTMP.color = Color.white;
-            coinsPriceTMP.text = "BUY (100)";
+            // Centered Content (Coin Icon + Price Text)
+            AlignCoinButtonContent(coinBtnObj.transform, defaultFont);
 
             // Button 2: Watch Ad (Purple Action Button)
-            GameObject adBtnObj = new GameObject("WatchAdButton");
+            GameObject adBtnObj = new GameObject("WatchAdButton", typeof(RectTransform));
             adBtnObj.transform.SetParent(dialogCard, false);
-            RectTransform adBtnRt = adBtnObj.AddComponent<RectTransform>();
+            RectTransform adBtnRt = adBtnObj.GetComponent<RectTransform>();
             adBtnRt.anchorMin = new Vector2(0.5f, 0f);
             adBtnRt.anchorMax = new Vector2(0.5f, 0f);
             adBtnRt.pivot = new Vector2(0.5f, 0f);
@@ -856,9 +871,9 @@ namespace LegoPuzzle.Runtime
             watchAdButton = adBtnObj.AddComponent<Button>();
             UIButtonPressEffect.AttachTo(adBtnObj);
 
-            GameObject adTextObj = new GameObject("AdText");
+            GameObject adTextObj = new GameObject("AdText", typeof(RectTransform));
             adTextObj.transform.SetParent(adBtnObj.transform, false);
-            RectTransform adtRt = adTextObj.AddComponent<RectTransform>();
+            RectTransform adtRt = adTextObj.GetComponent<RectTransform>();
             adtRt.anchorMin = Vector2.zero;
             adtRt.anchorMax = Vector2.one;
             adtRt.offsetMin = Vector2.zero;
@@ -872,10 +887,10 @@ namespace LegoPuzzle.Runtime
             adButtonTMP.text = "WATCH AD (+1)";
 
             // Toast feedback message (bottom overlay)
-            GameObject toastObj = new GameObject("ToastMessage");
+            GameObject toastObj = new GameObject("ToastMessage", typeof(RectTransform));
             toastObj.transform.SetParent(dialogCard, false);
             toastRoot = toastObj;
-            RectTransform toastRt = toastObj.AddComponent<RectTransform>();
+            RectTransform toastRt = toastObj.GetComponent<RectTransform>();
             toastRt.anchorMin = new Vector2(0.5f, 0.5f);
             toastRt.anchorMax = new Vector2(0.5f, 0.5f);
             toastRt.pivot = new Vector2(0.5f, 0.5f);
@@ -887,9 +902,9 @@ namespace LegoPuzzle.Runtime
             toastBg.type = Image.Type.Sliced;
             toastBg.color = new Color(0.92f, 0.22f, 0.24f, 0.96f);
 
-            GameObject toastTxtObj = new GameObject("Text");
+            GameObject toastTxtObj = new GameObject("Text", typeof(RectTransform));
             toastTxtObj.transform.SetParent(toastObj.transform, false);
-            RectTransform ttRt = toastTxtObj.AddComponent<RectTransform>();
+            RectTransform ttRt = toastTxtObj.GetComponent<RectTransform>();
             ttRt.anchorMin = Vector2.zero;
             ttRt.anchorMax = Vector2.one;
             ttRt.offsetMin = Vector2.zero;
@@ -930,17 +945,11 @@ namespace LegoPuzzle.Runtime
                 var b = dialogCard.Find("ChargesBadge");
                 if (b != null) chargesBadgeTMP = b.GetComponentInChildren<TMP_Text>();
             }
-            if (buyWithCoinsButton == null)
+            var cb = dialogCard.Find("BuyWithCoinsButton");
+            if (cb != null)
             {
-                var cb = dialogCard.Find("BuyWithCoinsButton");
-                if (cb != null)
-                {
-                    buyWithCoinsButton = cb.GetComponent<Button>();
-                    var pt = cb.Find("PriceText");
-                    if (pt != null) coinsPriceTMP = pt.GetComponent<TMP_Text>();
-                    var ci = cb.Find("CoinIcon");
-                    if (ci != null) buttonCoinIcon = ci.GetComponent<Image>();
-                }
+                if (buyWithCoinsButton == null) buyWithCoinsButton = cb.GetComponent<Button>();
+                AlignCoinButtonContent(cb, GetDefaultTMPFont());
             }
             if (watchAdButton == null)
             {
@@ -968,6 +977,131 @@ namespace LegoPuzzle.Runtime
             }
         }
 
+        private void AlignCoinButtonContent(Transform coinBtnTransform, TMP_FontAsset font = null)
+        {
+            if (coinBtnTransform == null) return;
+
+            // Безпечно прибираємо старий проміжний контейнер ContentRow, якщо він був
+            Transform oldRow = coinBtnTransform.Find("ContentRow");
+            if (oldRow != null)
+            {
+                Transform oldIcon = oldRow.Find("CoinIcon");
+                if (oldIcon != null) oldIcon.SetParent(coinBtnTransform, false);
+                Transform oldText = oldRow.Find("PriceText");
+                if (oldText != null) oldText.SetParent(coinBtnTransform, false);
+
+                if (Application.isPlaying)
+                    Destroy(oldRow.gameObject);
+                else
+                    DestroyImmediate(oldRow.gameObject);
+            }
+
+            // Видаляємо Layout-компоненти, які викликають зсуви та конфлікти оновлення
+            var hlg = coinBtnTransform.GetComponent<HorizontalLayoutGroup>();
+            if (hlg != null)
+            {
+                if (Application.isPlaying) Destroy(hlg);
+                else DestroyImmediate(hlg);
+            }
+
+            // Шукаємо або створюємо CoinIcon
+            Transform coinIconTrans = coinBtnTransform.Find("CoinIcon");
+            RectTransform bciRt;
+            if (coinIconTrans == null)
+            {
+                GameObject bCoinIconObj = new GameObject("CoinIcon", typeof(RectTransform));
+                bCoinIconObj.transform.SetParent(coinBtnTransform, false);
+                bciRt = bCoinIconObj.GetComponent<RectTransform>();
+                coinIconTrans = bCoinIconObj.transform;
+            }
+            else
+            {
+                bciRt = coinIconTrans.GetComponent<RectTransform>();
+            }
+
+            var iconLe = coinIconTrans.GetComponent<LayoutElement>();
+            if (iconLe != null)
+            {
+                if (Application.isPlaying) Destroy(iconLe);
+                else DestroyImmediate(iconLe);
+            }
+
+            buttonCoinIcon = coinIconTrans.GetComponent<Image>();
+            if (buttonCoinIcon == null) buttonCoinIcon = coinIconTrans.gameObject.AddComponent<Image>();
+            buttonCoinIcon.sprite = GetCoinSprite();
+            buttonCoinIcon.preserveAspect = true;
+            buttonCoinIcon.raycastTarget = false;
+
+            // Шукаємо або створюємо PriceText
+            Transform priceTextTrans = coinBtnTransform.Find("PriceText");
+            RectTransform bctRt;
+            if (priceTextTrans == null)
+            {
+                GameObject bCoinTextObj = new GameObject("PriceText", typeof(RectTransform));
+                bCoinTextObj.transform.SetParent(coinBtnTransform, false);
+                bctRt = bCoinTextObj.GetComponent<RectTransform>();
+                priceTextTrans = bCoinTextObj.transform;
+            }
+            else
+            {
+                bctRt = priceTextTrans.GetComponent<RectTransform>();
+            }
+
+            var textCsf = priceTextTrans.GetComponent<ContentSizeFitter>();
+            if (textCsf != null)
+            {
+                if (Application.isPlaying) Destroy(textCsf);
+                else DestroyImmediate(textCsf);
+            }
+
+            coinsPriceTMP = priceTextTrans.GetComponent<TextMeshProUGUI>();
+            if (coinsPriceTMP == null) coinsPriceTMP = priceTextTrans.gameObject.AddComponent<TextMeshProUGUI>();
+            if (font != null && coinsPriceTMP.font == null) coinsPriceTMP.font = font;
+            coinsPriceTMP.fontSize = 36f;
+            coinsPriceTMP.fontStyle = FontStyles.Bold;
+            coinsPriceTMP.alignment = TextAlignmentOptions.MidlineLeft;
+            coinsPriceTMP.color = Color.white;
+            coinsPriceTMP.raycastTarget = false;
+            coinsPriceTMP.margin = Vector4.zero;
+            if (string.IsNullOrEmpty(coinsPriceTMP.text)) coinsPriceTMP.text = "BUY (100)";
+
+            // Примусово обраховуємо меш для отримання точної піксельної ширини рядка
+            coinsPriceTMP.ForceMeshUpdate();
+            float textWidth = coinsPriceTMP.preferredWidth;
+            if (textWidth <= 10f)
+            {
+                textWidth = coinsPriceTMP.text.Length * 18f;
+            }
+
+            const float iconSize = 46f;
+            const float spacing = 12f;
+            float totalWidth = iconSize + spacing + textWidth;
+            float startX = -totalWidth * 0.5f;
+
+            // CoinIcon розташовується зліва
+            if (bciRt != null)
+            {
+                bciRt.anchorMin = new Vector2(0.5f, 0.5f);
+                bciRt.anchorMax = new Vector2(0.5f, 0.5f);
+                bciRt.pivot = new Vector2(0f, 0.5f);
+                bciRt.sizeDelta = new Vector2(iconSize, iconSize);
+                bciRt.anchoredPosition = new Vector2(startX, 0f);
+            }
+
+            // PriceText розташовується одразу праворуч від іконки з відступом
+            if (bctRt != null)
+            {
+                bctRt.anchorMin = new Vector2(0.5f, 0.5f);
+                bctRt.anchorMax = new Vector2(0.5f, 0.5f);
+                bctRt.pivot = new Vector2(0f, 0.5f);
+                bctRt.sizeDelta = new Vector2(textWidth + 20f, 50f);
+                bctRt.anchoredPosition = new Vector2(startX + iconSize + spacing, 0f);
+            }
+
+            coinIconTrans.SetSiblingIndex(0);
+            priceTextTrans.SetSiblingIndex(1);
+        }
+
         private Sprite GetRoundedBgSprite()
         {
             var sprites = Resources.FindObjectsOfTypeAll<Sprite>();
@@ -983,6 +1117,16 @@ namespace LegoPuzzle.Runtime
         {
             if (coinSprite != null) return coinSprite;
 
+            var sprites = Resources.FindObjectsOfTypeAll<Sprite>();
+            foreach (var s in sprites)
+            {
+                if (s.name == "UI-pack_Sprite_1_16" || s.name.IndexOf("coin", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    coinSprite = s;
+                    return s;
+                }
+            }
+
 #if UNITY_EDITOR
             var allAssets = UnityEditor.AssetDatabase.LoadAllAssetsAtPath("Assets/300Mind/2D Game UI Kit/Sprites/UI-pack_Sprite_1.png");
             if (allAssets != null)
@@ -997,16 +1141,6 @@ namespace LegoPuzzle.Runtime
                 }
             }
 #endif
-
-            var sprites = Resources.FindObjectsOfTypeAll<Sprite>();
-            foreach (var s in sprites)
-            {
-                if (s.name == "UI-pack_Sprite_1_16" || s.name.IndexOf("coin", StringComparison.OrdinalIgnoreCase) >= 0)
-                {
-                    coinSprite = s;
-                    return s;
-                }
-            }
             return null;
         }
 

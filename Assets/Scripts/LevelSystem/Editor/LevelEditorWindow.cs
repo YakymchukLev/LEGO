@@ -14,6 +14,7 @@ namespace LegoPuzzle.Editor
         {
             CellBrush,
             PlacePiece,
+            SelectPiece,
             ErasePiece
         }
 
@@ -29,9 +30,14 @@ namespace LegoPuzzle.Editor
         private BlockColorType pieceColorType = BlockColorType.Red;
         private MoveRestriction pieceRestriction = MoveRestriction.Free;
         private int pieceRotation = 0;
+        private int pieceFreezeCount = 0;
+
+        // Виділена деталь для редагування
+        private LegoPieceData selectedPiece = null;
+        private bool showPiecesListFoldout = false;
 
         private Vector2 scrollPos;
-        private const float CELL_GUI_SIZE = 36f;
+        private float previewCellSize = LevelGridRenderer.DEFAULT_CELL_SIZE;
 
         [MenuItem("Tools/LEGO Level Editor")]
         public static void OpenWindow()
@@ -97,6 +103,11 @@ namespace LegoPuzzle.Editor
                 GUI.backgroundColor = new Color(1f, 0.85f, 0.4f);
                 if (GUILayout.Button("🔄 Скинути прогрес (на Рівень 1)", GUILayout.Height(24)))
                 {
+                    if (Runtime.SaveDataService.Instance != null && Runtime.SaveDataService.Instance.Data != null)
+                    {
+                        Runtime.SaveDataService.Instance.Data.currentLevelIndex = 0;
+                        Runtime.SaveDataService.Instance.Save();
+                    }
                     PlayerPrefs.DeleteKey("LEGO_CurrentLevelIndex");
                     PlayerPrefs.Save();
                     Debug.Log("<color=yellow>LevelEditor: Прогрес гри успішно скинуто на Рівень 1!</color>");
@@ -167,7 +178,7 @@ namespace LegoPuzzle.Editor
         private void DrawToolbarPanel()
         {
             EditorGUILayout.LabelField("Інструменти редагування", EditorStyles.boldLabel);
-            currentMode = (PaintMode)GUILayout.Toolbar((int)currentMode, new string[] { "Пензель клітинок", "Поставити блок", "Видалити блок" });
+            currentMode = (PaintMode)GUILayout.Toolbar((int)currentMode, new string[] { "Пензель клітинок", "Поставити блок", "Вибір / Редагування блоку", "Видалити блок" });
 
             EditorGUILayout.BeginVertical(EditorStyles.helpBox);
 
@@ -252,6 +263,71 @@ namespace LegoPuzzle.Editor
                 pieceColorType = (BlockColorType)EditorGUILayout.EnumPopup("Колір деталі", pieceColorType);
                 pieceRestriction = (MoveRestriction)EditorGUILayout.EnumPopup("Обмеження руху", pieceRestriction);
                 pieceRotation = EditorGUILayout.IntSlider($"Поворот ({pieceRotation * 90}°)", pieceRotation, 0, 3);
+
+                EditorGUILayout.Space(4);
+                EditorGUILayout.BeginHorizontal();
+                pieceFreezeCount = EditorGUILayout.IntField("❄ Лічильник заморозки", Mathf.Max(0, pieceFreezeCount));
+                if (pieceFreezeCount > 0 && GUILayout.Button("Скинути на 0", GUILayout.Width(100)))
+                {
+                    pieceFreezeCount = 0;
+                }
+                EditorGUILayout.EndHorizontal();
+
+                if (pieceFreezeCount > 0)
+                {
+                    EditorGUILayout.HelpBox($"Блок буде замороженим! Для розморозки потрібно знищити {pieceFreezeCount} інш. блоків.", MessageType.Info);
+                }
+            }
+            else if (currentMode == PaintMode.SelectPiece)
+            {
+                if (selectedPiece == null)
+                {
+                    EditorGUILayout.HelpBox("Клікніть на будь-який блок на сітці нижче, щоб обрати та налаштувати його параметри.", MessageType.Info);
+                }
+                else
+                {
+                    EditorGUILayout.LabelField($"Налаштування обраного блоку: {selectedPiece.pieceId}", EditorStyles.boldLabel);
+                    EditorGUI.BeginChangeCheck();
+
+                    selectedPiece.pieceId = EditorGUILayout.TextField("ID блоку", selectedPiece.pieceId);
+                    selectedPiece.shape = (LegoShapeDefinition)EditorGUILayout.ObjectField("Форма", selectedPiece.shape, typeof(LegoShapeDefinition), false);
+                    selectedPiece.colorType = (BlockColorType)EditorGUILayout.EnumPopup("Колір деталі", selectedPiece.colorType);
+                    selectedPiece.moveRestriction = (MoveRestriction)EditorGUILayout.EnumPopup("Обмеження руху", selectedPiece.moveRestriction);
+                    selectedPiece.rotationSteps = EditorGUILayout.IntSlider($"Поворот ({selectedPiece.rotationSteps * 90}°)", selectedPiece.rotationSteps, 0, 3);
+
+                    EditorGUILayout.Space(4);
+                    EditorGUILayout.BeginHorizontal();
+                    selectedPiece.freezeCount = EditorGUILayout.IntField("❄ Лічильник заморозки", Mathf.Max(0, selectedPiece.freezeCount));
+                    if (GUILayout.Button("0 (Розморозити)", GUILayout.Width(120)))
+                    {
+                        selectedPiece.freezeCount = 0;
+                    }
+                    EditorGUILayout.EndHorizontal();
+
+                    if (selectedPiece.freezeCount > 0)
+                    {
+                        EditorGUILayout.HelpBox($"Блок заморожений! Він стане рухомим тільки після знищення {selectedPiece.freezeCount} інших блоків.", MessageType.Warning);
+                    }
+
+                    selectedPiece.isRequiredForWin = EditorGUILayout.Toggle("Потрібен для перемоги", selectedPiece.isRequiredForWin);
+
+                    if (EditorGUI.EndChangeCheck())
+                    {
+                        EditorUtility.SetDirty(targetLevel);
+                        AssetDatabase.SaveAssets();
+                    }
+
+                    EditorGUILayout.Space(6);
+                    GUI.backgroundColor = new Color(1f, 0.4f, 0.4f);
+                    if (GUILayout.Button("Видалити цей блок"))
+                    {
+                        targetLevel.pieces.Remove(selectedPiece);
+                        selectedPiece = null;
+                        EditorUtility.SetDirty(targetLevel);
+                        AssetDatabase.SaveAssets();
+                    }
+                    GUI.backgroundColor = Color.white;
+                }
             }
 
             EditorGUILayout.BeginHorizontal();
@@ -317,7 +393,15 @@ namespace LegoPuzzle.Editor
         {
             targetLevel.EnsureGridCapacity();
 
-            scrollPos = EditorGUILayout.BeginScrollView(scrollPos);
+            EditorGUILayout.BeginHorizontal();
+            EditorGUILayout.LabelField("Інтерактивне поле (клікніть для редагування):", EditorStyles.boldLabel);
+            GUILayout.FlexibleSpace();
+            EditorGUILayout.LabelField("Масштаб (Zoom):", GUILayout.Width(110));
+            previewCellSize = EditorGUILayout.Slider(previewCellSize, LevelGridRenderer.MIN_CELL_SIZE, LevelGridRenderer.MAX_CELL_SIZE, GUILayout.Width(140));
+            EditorGUILayout.EndHorizontal();
+
+            float viewHeight = Mathf.Min(430f, (targetLevel.gridHeight + 1) * (previewCellSize + 3f) + 24f);
+            scrollPos = EditorGUILayout.BeginScrollView(scrollPos, GUILayout.Height(viewHeight));
 
             // Малюємо сітку знизу вгору (як у системі координат Y)
             for (int y = targetLevel.gridHeight - 1; y >= 0; y--)
@@ -330,35 +414,22 @@ namespace LegoPuzzle.Editor
                     CellData cell = targetLevel.GetCell(x, y);
                     LegoPieceData pieceOnCell = GetPieceAt(x, y);
 
-                    Color originalBg = GUI.backgroundColor;
+                    Rect cellRect = GUILayoutUtility.GetRect(previewCellSize, previewCellSize, GUILayout.Width(previewCellSize), GUILayout.Height(previewCellSize));
+                    LevelGridRenderer.DrawCell(cellRect, cell, pieceOnCell, x, y, previewCellSize);
 
-                    // Колір кнопки залежно від вмісту
-                    if (pieceOnCell != null)
+                    if (pieceOnCell != null && pieceOnCell == selectedPiece)
                     {
-                        GUI.backgroundColor = pieceOnCell.GetColor();
-                    }
-                    else
-                    {
-                        GUI.backgroundColor = cell.cellType switch
-                        {
-                            CellType.Walkable => new Color(0.95f, 0.90f, 0.55f),
-                            CellType.Obstacle => new Color(0.55f, 0.35f, 0.20f),
-                            CellType.HalfObstacle => new Color(0.68f, 0.42f, 0.22f),
-                            CellType.QuarterObstacle => new Color(0.72f, 0.45f, 0.24f),
-                            CellType.ExitGate => cell.GetEffectiveColor(),
-                            CellType.HalfExitGate => cell.GetEffectiveColor(),
-                            _ => new Color(0.2f, 0.2f, 0.2f, 0.3f)
-                        };
+                        Color selBorder = new Color(1f, 0.9f, 0.1f, 1f);
+                        EditorGUI.DrawRect(new Rect(cellRect.x, cellRect.y, cellRect.width, 2.5f), selBorder);
+                        EditorGUI.DrawRect(new Rect(cellRect.x, cellRect.y, 2.5f, cellRect.height), selBorder);
+                        EditorGUI.DrawRect(new Rect(cellRect.x, cellRect.yMax - 2.5f, cellRect.width, 2.5f), selBorder);
+                        EditorGUI.DrawRect(new Rect(cellRect.xMax - 2.5f, cellRect.y, 2.5f, cellRect.height), selBorder);
                     }
 
-                    string label = GetCellLabel(cell, pieceOnCell);
-
-                    if (GUILayout.Button(label, GUILayout.Width(CELL_GUI_SIZE), GUILayout.Height(CELL_GUI_SIZE)))
+                    if (GUI.Button(cellRect, GUIContent.none, GUIStyle.none))
                     {
                         OnCellClicked(x, y);
                     }
-
-                    GUI.backgroundColor = originalBg;
                 }
 
                 GUILayout.FlexibleSpace();
@@ -366,65 +437,97 @@ namespace LegoPuzzle.Editor
             }
 
             EditorGUILayout.EndScrollView();
+
+            LevelGridRenderer.DrawLegend();
+
+            DrawPiecesList();
         }
 
-        private string GetCellLabel(CellData cell, LegoPieceData piece)
+        private void DrawPiecesList()
         {
-            if (piece != null)
+            if (targetLevel == null || targetLevel.pieces == null) return;
+
+            EditorGUILayout.Space(6);
+            showPiecesListFoldout = EditorGUILayout.Foldout(showPiecesListFoldout, $"📋 Список усіх блоків на рівні ({targetLevel.pieces.Count})", true, EditorStyles.foldoutHeader);
+            if (!showPiecesListFoldout) return;
+
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+
+            if (targetLevel.pieces.Count == 0)
             {
-                return piece.moveRestriction switch
+                EditorGUILayout.LabelField("На рівні ще немає жодного блоку.", EditorStyles.miniLabel);
+            }
+            else
+            {
+                EditorGUILayout.BeginHorizontal();
+                EditorGUILayout.LabelField("Блок / ID", EditorStyles.boldLabel, GUILayout.Width(100));
+                EditorGUILayout.LabelField("Колір", EditorStyles.boldLabel, GUILayout.Width(75));
+                EditorGUILayout.LabelField("Рух", EditorStyles.boldLabel, GUILayout.Width(80));
+                EditorGUILayout.LabelField("❄ Заморозка", EditorStyles.boldLabel, GUILayout.Width(110));
+                GUILayout.FlexibleSpace();
+                EditorGUILayout.EndHorizontal();
+
+                for (int i = 0; i < targetLevel.pieces.Count; i++)
                 {
-                    MoveRestriction.HorizontalOnly => "↔",
-                    MoveRestriction.VerticalOnly => "↕",
-                    _ => "●"
-                };
+                    var p = targetLevel.pieces[i];
+                    if (p == null) continue;
+
+                    EditorGUILayout.BeginHorizontal();
+                    bool isSel = (p == selectedPiece);
+                    if (isSel) GUI.backgroundColor = new Color(1f, 1f, 0.4f);
+
+                    if (GUILayout.Button(isSel ? $"▶ {p.pieceId}" : p.pieceId, GUILayout.Width(100)))
+                    {
+                        selectedPiece = p;
+                        currentMode = PaintMode.SelectPiece;
+                    }
+                    GUI.backgroundColor = Color.white;
+
+                    EditorGUILayout.LabelField(p.colorType.ToString(), GUILayout.Width(75));
+                    string restrName = p.moveRestriction switch
+                    {
+                        MoveRestriction.HorizontalOnly => "↔ Гориз.",
+                        MoveRestriction.VerticalOnly => "↕ Верт.",
+                        MoveRestriction.Locked => "🔒 Заблок.",
+                        _ => "Вільний"
+                    };
+                    EditorGUILayout.LabelField(restrName, GUILayout.Width(80));
+
+                    EditorGUI.BeginChangeCheck();
+                    int newFreeze = EditorGUILayout.IntField(Mathf.Max(0, p.freezeCount), GUILayout.Width(50));
+                    if (EditorGUI.EndChangeCheck())
+                    {
+                        p.freezeCount = newFreeze;
+                        EditorUtility.SetDirty(targetLevel);
+                    }
+
+                    if (p.freezeCount > 0)
+                    {
+                        EditorGUILayout.LabelField("❄ Заморожений", EditorStyles.miniLabel, GUILayout.Width(95));
+                    }
+                    else
+                    {
+                        EditorGUILayout.LabelField("", GUILayout.Width(95));
+                    }
+
+                    GUILayout.FlexibleSpace();
+
+                    GUI.backgroundColor = new Color(1f, 0.5f, 0.5f);
+                    if (GUILayout.Button("✕", GUILayout.Width(25)))
+                    {
+                        if (selectedPiece == p) selectedPiece = null;
+                        targetLevel.pieces.RemoveAt(i);
+                        EditorUtility.SetDirty(targetLevel);
+                        GUI.backgroundColor = Color.white;
+                        break;
+                    }
+                    GUI.backgroundColor = Color.white;
+
+                    EditorGUILayout.EndHorizontal();
+                }
             }
 
-            return cell.cellType switch
-            {
-                CellType.Obstacle => "■",
-                CellType.HalfObstacle => cell.exitDirection switch
-                {
-                    ExitDirection.Up => "▀",
-                    ExitDirection.Down => "▄",
-                    ExitDirection.Left => "▌",
-                    ExitDirection.Right => "▐",
-                    _ => "■"
-                },
-                CellType.QuarterObstacle => cell.exitDirection switch
-                {
-                    ExitDirection.Left => "▘",  // Top-Left
-                    ExitDirection.Up => "▝",    // Top-Right
-                    ExitDirection.Down => "▖",  // Bottom-Left
-                    ExitDirection.Right => "▗", // Bottom-Right
-                    _ => "▘"
-                },
-                CellType.ExitGate => (cell.gateColorType == BlockColorType.Universal ? "★" : "") + cell.exitDirection switch
-                {
-                    ExitDirection.Up => "▲",
-                    ExitDirection.Down => "▼",
-                    ExitDirection.Left => "◀",
-                    ExitDirection.Right => "▶",
-                    _ => "O"
-                },
-                CellType.HalfExitGate => (cell.gateColorType == BlockColorType.Universal ? "★" : "") + (cell.exitDirection switch
-                {
-                    ExitDirection.Up => "▲",
-                    ExitDirection.Down => "▼",
-                    ExitDirection.Left => "◀",
-                    ExitDirection.Right => "▶",
-                    _ => ""
-                }) + (cell.gateAlignment switch
-                {
-                    0 => "▀", // Top
-                    1 => "▄", // Bottom
-                    2 => "▌", // Left
-                    3 => "▐", // Right
-                    _ => "½"
-                }),
-                CellType.Walkable => "+",
-                _ => ""
-            };
+            EditorGUILayout.EndVertical();
         }
 
         private void OnCellClicked(int x, int y)
@@ -441,26 +544,41 @@ namespace LegoPuzzle.Editor
                 };
                 targetLevel.SetCell(x, y, newCell);
             }
+            else if (currentMode == PaintMode.SelectPiece)
+            {
+                selectedPiece = GetPieceAt(x, y);
+            }
             else if (currentMode == PaintMode.PlacePiece)
             {
-                // Створюємо нову деталь
-                LegoPieceData newPiece = new LegoPieceData
+                LegoPieceData existing = GetPieceAt(x, y);
+                if (existing != null)
                 {
-                    pieceId = $"Piece_{targetLevel.pieces.Count + 1}",
-                    shape = selectedShape,
-                    originPosition = new Vector2Int(x, y),
-                    rotationSteps = pieceRotation,
-                    colorType = pieceColorType,
-                    moveRestriction = pieceRestriction
-                };
+                    selectedPiece = existing;
+                }
+                else
+                {
+                    // Створюємо нову деталь
+                    LegoPieceData newPiece = new LegoPieceData
+                    {
+                        pieceId = $"Piece_{targetLevel.pieces.Count + 1}",
+                        shape = selectedShape,
+                        originPosition = new Vector2Int(x, y),
+                        rotationSteps = pieceRotation,
+                        colorType = pieceColorType,
+                        moveRestriction = pieceRestriction,
+                        freezeCount = pieceFreezeCount
+                    };
 
-                targetLevel.pieces.Add(newPiece);
+                    targetLevel.pieces.Add(newPiece);
+                    selectedPiece = newPiece;
+                }
             }
             else if (currentMode == PaintMode.ErasePiece)
             {
                 LegoPieceData piece = GetPieceAt(x, y);
                 if (piece != null)
                 {
+                    if (selectedPiece == piece) selectedPiece = null;
                     targetLevel.pieces.Remove(piece);
                 }
             }
@@ -500,6 +618,36 @@ namespace LegoPuzzle.Editor
         {
             if (targetLevel != null)
             {
+                GUI.FocusControl(null);
+
+                string expectedName3 = $"Level_{targetLevel.levelIndex:D3}";
+                string expectedNameRaw = $"Level_{targetLevel.levelIndex}";
+
+                // Якщо номер рівня не відповідає назві файлу (наприклад, відкритий Level_001, а номер змінено на 14)
+                if (targetLevel.name != expectedName3 && targetLevel.name != expectedNameRaw)
+                {
+                    bool saveAsNew = EditorUtility.DisplayDialog(
+                        "Збереження рівня",
+                        $"Поточний файл має назву '{targetLevel.name}', але номер рівня встановлено як {targetLevel.levelIndex}.\n\nСтворити новий файл '{expectedName3}.asset' під цей номер рівня?",
+                        "Створити новий асет (Save As)",
+                        "Перезаписати поточний"
+                    );
+
+                    if (saveAsNew)
+                    {
+                        string newPath = $"Assets/Levels/{expectedName3}.asset";
+                        LevelData copy = Instantiate(targetLevel);
+                        copy.levelIndex = targetLevel.levelIndex;
+                        copy.levelTitle = string.IsNullOrEmpty(targetLevel.levelTitle) ? $"Level {targetLevel.levelIndex}" : targetLevel.levelTitle;
+                        AssetDatabase.CreateAsset(copy, newPath);
+                        AssetDatabase.SaveAssets();
+                        targetLevel = copy;
+                        Selection.activeObject = copy;
+                        Debug.Log($"<color=green>Рівень збережено як новий асет: {newPath}</color>");
+                        return;
+                    }
+                }
+
                 EditorUtility.SetDirty(targetLevel);
                 AssetDatabase.SaveAssets();
                 Debug.Log($"<color=green>Рівень '{targetLevel.name}' успішно збережено на диск!</color>");

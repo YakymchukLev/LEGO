@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
@@ -47,11 +48,20 @@ namespace LegoPuzzle.Runtime
 
         private void Awake()
         {
+            if (Application.isPlaying)
+            {
+                if (Instance != null && Instance != this)
+                {
+                    Destroy(this);
+                    return;
+                }
+            }
             Instance = this;
         }
 
         private void OnEnable()
         {
+            if (Application.isPlaying && Instance != null && Instance != this) return;
             Instance = this;
             EnsureCoinManager();
             EnsureUIHierarchy();
@@ -61,6 +71,7 @@ namespace LegoPuzzle.Runtime
 
         private void Start()
         {
+            if (Application.isPlaying && Instance != null && Instance != this) return;
             EnsureCoinManager();
             EnsureUIHierarchy();
             BindEvents();
@@ -140,6 +151,14 @@ namespace LegoPuzzle.Runtime
             if (CoinManager.HasInstance)
             {
                 balance = CoinManager.Instance.Coins;
+            }
+            else if (SaveDataService.HasInstance && SaveDataService.Instance.Data != null)
+            {
+                balance = SaveDataService.Instance.Data.coins;
+            }
+            else if (Application.isPlaying && SaveDataService.Instance != null && SaveDataService.Instance.Data != null)
+            {
+                balance = SaveDataService.Instance.Data.coins;
             }
             else
             {
@@ -224,62 +243,166 @@ namespace LegoPuzzle.Runtime
             bounceCoroutine = null;
         }
 
-        /// <summary>
-        /// Links existing hierarchy elements if present on scene, or builds horizontal row [Coin] [Count] at Top Right.
-        /// </summary>
-        public void EnsureUIHierarchy()
+        private Canvas FindMainCanvas()
         {
             Canvas canvas = GetComponentInParent<Canvas>();
-            if (canvas == null) canvas = FindAnyObjectByType<Canvas>();
-            if (canvas == null) return;
+            if (canvas != null && !canvas.name.Contains("Dev")) return canvas;
 
-            // 1. Look for pre-existing CoinsWidget in scene
-            if (widgetContainer == null)
+            Canvas[] allCanvases = FindObjectsByType<Canvas>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            foreach (var c in allCanvases)
             {
-                Transform existing = canvas.transform.Find("CoinsWidget");
-                if (existing != null)
+                if (c == null) continue;
+                if (c.name.Contains("Dev")) continue;
+                if (c.transform.Find("DownPanel") != null ||
+                    c.transform.Find("GemsWidget") != null ||
+                    c.transform.Find("CoinsWidget") != null ||
+                    c.transform.Find("SettingsButton") != null)
                 {
-                    widgetContainer = existing.GetComponent<RectTransform>();
+                    return c;
                 }
             }
 
-            if (widgetContainer != null)
+            foreach (var c in allCanvases)
             {
-                // Auto-hook children
-                if (coinIconImage == null)
-                {
-                    Transform iconTr = widgetContainer.Find("CoinIcon");
-                    if (iconTr != null) coinIconImage = iconTr.GetComponent<Image>();
-                }
-                if (coinsCountTMP == null)
-                {
-                    Transform countTr = widgetContainer.Find("CoinsCountText");
-                    if (countTr != null) coinsCountTMP = countTr.GetComponent<TMP_Text>();
-                }
-                if (coinsCountLegacy == null)
-                {
-                    Transform countTr = widgetContainer.Find("CoinsCountText");
-                    if (countTr != null) coinsCountLegacy = countTr.GetComponent<Text>();
-                }
-
-                if (coinIconImage != null && coinIconImage.sprite == null)
-                {
-                    coinIconImage.sprite = GetCoinSprite();
-                }
-                EnsureButtonListener();
-                return;
+                if (c != null && !c.name.Contains("Dev") && c.name == "Canvas")
+                    return c;
             }
 
-            // 2. If completely missing in scene, create horizontal row: [CoinIcon] [CoinsCountText]
+            foreach (var c in allCanvases)
+            {
+                if (c != null && !c.name.Contains("Dev"))
+                    return c;
+            }
+
+            return null;
+        }
+
+        private void CleanupAndResolveCoinsWidget(Canvas canvas)
+        {
+            // 1. If widgetContainer is already assigned, ensure it is not overlapping GemsWidget
+            if (widgetContainer != null && widgetContainer.gameObject != null)
+            {
+                if (widgetContainer.anchoredPosition.x > -250f)
+                {
+                    widgetContainer.anchoredPosition = new Vector2(-456.76f, -70f);
+                }
+            }
+
+            // 2. Find all RectTransforms named "CoinsWidget" in the scene
+            var allWidgets = FindObjectsByType<RectTransform>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            var coinWidgets = new List<RectTransform>();
+            foreach (var rt in allWidgets)
+            {
+                if (rt != null && rt.name == "CoinsWidget")
+                {
+                    coinWidgets.Add(rt);
+                }
+            }
+
+            if (coinWidgets.Count > 0)
+            {
+                // Prefer widgetContainer if already assigned and valid
+                RectTransform best = widgetContainer;
+                if (best == null || !coinWidgets.Contains(best))
+                {
+                    // Look for one directly under canvas positioned properly (x < -300)
+                    foreach (var cw in coinWidgets)
+                    {
+                        if (cw.transform.parent == canvas.transform && cw.anchoredPosition.x < -300f)
+                        {
+                            best = cw;
+                            break;
+                        }
+                    }
+                    if (best == null)
+                    {
+                        foreach (var cw in coinWidgets)
+                        {
+                            if (cw.transform.parent == canvas.transform)
+                            {
+                                best = cw;
+                                break;
+                            }
+                        }
+                    }
+                    if (best == null) best = coinWidgets[0];
+                }
+
+                widgetContainer = best;
+                if (widgetContainer.anchoredPosition.x > -250f)
+                {
+                    widgetContainer.anchoredPosition = new Vector2(-456.76f, -70f);
+                }
+
+                // Destroy any extra / duplicate CoinsWidget!
+                for (int i = 0; i < coinWidgets.Count; i++)
+                {
+                    var cw = coinWidgets[i];
+                    if (cw != null && cw != best)
+                    {
+                        if (Application.isPlaying)
+                        {
+                            Destroy(cw.gameObject);
+                        }
+                        else
+                        {
+                            DestroyImmediate(cw.gameObject);
+                        }
+                    }
+                }
+            }
+
+            // 3. Specifically check if any rogue CoinsWidget or CoinIcon was attached to DevPanel
+            var devPanels = FindObjectsByType<LevelDevPanel>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            foreach (var dev in devPanels)
+            {
+                if (dev != null)
+                {
+                    Transform rogue = dev.transform.Find("CoinsWidget");
+                    if (rogue != null)
+                    {
+                        if (Application.isPlaying) Destroy(rogue.gameObject);
+                        else DestroyImmediate(rogue.gameObject);
+                    }
+                }
+            }
+
+            // 4. Also check if GemsWidget accidentally has a CoinsWidget or CoinIcon child
+            Transform gemsWidget = canvas.transform.Find("GemsWidget");
+            if (gemsWidget != null)
+            {
+                Transform rogueChild = gemsWidget.Find("CoinsWidget");
+                if (rogueChild != null)
+                {
+                    if (Application.isPlaying) Destroy(rogueChild.gameObject);
+                    else DestroyImmediate(rogueChild.gameObject);
+                }
+                Transform rogueIcon = gemsWidget.Find("CoinIcon");
+                if (rogueIcon != null)
+                {
+                    if (Application.isPlaying) Destroy(rogueIcon.gameObject);
+                    else DestroyImmediate(rogueIcon.gameObject);
+                }
+                Transform rogueText = gemsWidget.Find("CoinsCountText");
+                if (rogueText != null)
+                {
+                    if (Application.isPlaying) Destroy(rogueText.gameObject);
+                    else DestroyImmediate(rogueText.gameObject);
+                }
+            }
+        }
+
+        private void CreateCoinsWidget(Canvas canvas)
+        {
             GameObject widgetObj = new GameObject("CoinsWidget");
             widgetObj.transform.SetParent(canvas.transform, false);
             widgetContainer = widgetObj.AddComponent<RectTransform>();
 
-            // Anchor Top-Right (positioned nicely to the left of SettingsButton)
+            // Anchor Top-Right (positioned nicely to the left of GemsWidget: -456.76f, -70f)
             widgetContainer.anchorMin = new Vector2(1f, 1f);
             widgetContainer.anchorMax = new Vector2(1f, 1f);
             widgetContainer.pivot = new Vector2(1f, 1f);
-            widgetContainer.anchoredPosition = new Vector2(-170f, -70f);
+            widgetContainer.anchoredPosition = new Vector2(-456.76f, -70f);
             widgetContainer.sizeDelta = new Vector2(200f, 70f);
 
             // Clean horizontal layout
@@ -317,6 +440,50 @@ namespace LegoPuzzle.Runtime
             coinsCountTMP.text = "0";
 
             EnsureButtonListener();
+        }
+
+        /// <summary>
+        /// Links existing hierarchy elements if present on scene, or builds horizontal row [Coin] [Count] at Top Right.
+        /// </summary>
+        public void EnsureUIHierarchy()
+        {
+            Canvas canvas = FindMainCanvas();
+            if (canvas == null) return;
+
+            // Do not setup CoinsWidget on DevPanel or secondary canvases
+            if (canvas.name.Contains("Dev") || gameObject.name.Contains("Dev")) return;
+
+            // Clean up any duplicate or rogue CoinsWidgets
+            CleanupAndResolveCoinsWidget(canvas);
+
+            if (widgetContainer != null)
+            {
+                // Auto-hook children
+                if (coinIconImage == null)
+                {
+                    Transform iconTr = widgetContainer.Find("CoinIcon");
+                    if (iconTr != null) coinIconImage = iconTr.GetComponent<Image>();
+                }
+                if (coinsCountTMP == null)
+                {
+                    Transform countTr = widgetContainer.Find("CoinsCountText");
+                    if (countTr != null) coinsCountTMP = countTr.GetComponent<TMP_Text>();
+                }
+                if (coinsCountLegacy == null)
+                {
+                    Transform countTr = widgetContainer.Find("CoinsCountText");
+                    if (countTr != null) coinsCountLegacy = countTr.GetComponent<Text>();
+                }
+
+                if (coinIconImage != null && coinIconImage.sprite == null)
+                {
+                    coinIconImage.sprite = GetCoinSprite();
+                }
+                EnsureButtonListener();
+                return;
+            }
+
+            CreateCoinsWidget(canvas);
         }
 
         private void EnsureButtonListener()
@@ -423,28 +590,6 @@ namespace LegoPuzzle.Runtime
             }
         }
 
-        [UnityEditor.MenuItem("LEGO/Setup Menu Coins UI")]
-        public static void SetupMenuCoinsUIEditor()
-        {
-            Canvas canvas = UnityEngine.Object.FindAnyObjectByType<Canvas>();
-            if (canvas == null)
-            {
-                Debug.LogWarning("No Canvas found in current scene.");
-                return;
-            }
-
-            MenuCoinsUI coinsUI = canvas.GetComponent<MenuCoinsUI>();
-            if (coinsUI == null)
-            {
-                coinsUI = canvas.gameObject.AddComponent<MenuCoinsUI>();
-            }
-
-            coinsUI.EnsureCoinManager();
-            coinsUI.EnsureUIHierarchy();
-            coinsUI.UpdateUI(false);
-            UnityEditor.EditorUtility.SetDirty(canvas.gameObject);
-            Debug.Log("<color=green>MenuCoinsUI: Coins widget successfully configured on Canvas!</color>");
-        }
 #endif
     }
 }

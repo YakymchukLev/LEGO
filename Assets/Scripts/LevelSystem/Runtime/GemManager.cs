@@ -67,32 +67,32 @@ namespace LegoPuzzle.Runtime
         }
 
         /// <summary>
-        /// Loads gems from PlayerPrefs or initializes starting amount.
+        /// Loads gems from SaveDataService or initializes starting amount.
         /// </summary>
         public void LoadGems()
         {
-            if (!PlayerPrefs.HasKey(PREFS_INIT_FLAG))
+            if (SaveDataService.Instance != null && SaveDataService.Instance.Data != null)
             {
-                Gems = Mathf.Max(0, defaultInitialGems);
-                PlayerPrefs.SetInt(PREFS_GEMS, Gems);
-                PlayerPrefs.SetInt(PREFS_INIT_FLAG, 1);
-                PlayerPrefs.Save();
+                Gems = Mathf.Max(0, SaveDataService.Instance.Data.gems);
             }
             else
             {
-                Gems = Mathf.Max(0, PlayerPrefs.GetInt(PREFS_GEMS, defaultInitialGems));
+                Gems = Mathf.Max(0, defaultInitialGems);
             }
 
             OnGemsChanged?.Invoke(Gems);
         }
 
         /// <summary>
-        /// Saves current gem balance to PlayerPrefs.
+        /// Saves current gem balance to SaveDataService.
         /// </summary>
         public void SaveGems()
         {
-            PlayerPrefs.SetInt(PREFS_GEMS, Gems);
-            PlayerPrefs.Save();
+            if (SaveDataService.Instance != null && SaveDataService.Instance.Data != null)
+            {
+                SaveDataService.Instance.Data.gems = Gems;
+                SaveDataService.Instance.Save();
+            }
         }
 
         /// <summary>
@@ -132,7 +132,7 @@ namespace LegoPuzzle.Runtime
             }
 
             int previous = Gems;
-            Gems += amount;
+            Gems -= amount;
             SaveGems();
 
             if (logTransactions)

@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace LegoPuzzle.Runtime
@@ -6,11 +7,15 @@ namespace LegoPuzzle.Runtime
     /// <summary>
     /// Візуальний ефект туторіалу: анімована рука, що вказує напрямок руху блоку.
     /// Автоматично зникає при дотику або зміні ходу.
+    /// Підтримує як поодинокий показ (туторіал/підказка), так і масовий показ над кожним блоком (молоток).
     /// </summary>
     public class TutorialHandEffect : MonoBehaviour
     {
         private static TutorialHandEffect activeInstance;
         public static TutorialHandEffect ActiveInstance => activeInstance;
+
+        private static readonly List<TutorialHandEffect> activeInstances = new List<TutorialHandEffect>();
+        public static IReadOnlyList<TutorialHandEffect> ActiveInstances => activeInstances;
 
         private LegoPieceView targetPiece;
         private Vector2Int moveDelta;
@@ -30,10 +35,47 @@ namespace LegoPuzzle.Runtime
             TutorialHandEffect effect = obj.AddComponent<TutorialHandEffect>();
             effect.Initialize(piece, delta, size, customHandPrefab);
             activeInstance = effect;
+            activeInstances.Add(effect);
+        }
+
+        /// <summary>
+        /// Показує анімовану руку-показчик над КОЖНИМ блоком зі списку (наприклад, для вибору цілі молотком).
+        /// </summary>
+        public static void ShowAll(IEnumerable<LegoPieceView> pieces, Vector2Int delta, float size = 1f, GameObject customHandPrefab = null)
+        {
+            Dismiss();
+
+            if (pieces == null) return;
+
+            foreach (var piece in pieces)
+            {
+                if (piece == null || !piece.gameObject.activeInHierarchy || piece.IsExiting) continue;
+
+                GameObject obj = new GameObject("TutorialHandEffect");
+                obj.transform.SetParent(piece.transform.parent != null ? piece.transform.parent : piece.transform);
+
+                TutorialHandEffect effect = obj.AddComponent<TutorialHandEffect>();
+                effect.Initialize(piece, delta, size, customHandPrefab);
+                activeInstances.Add(effect);
+            }
+
+            if (activeInstances.Count > 0)
+            {
+                activeInstance = activeInstances[0];
+            }
         }
 
         public static void Dismiss()
         {
+            for (int i = activeInstances.Count - 1; i >= 0; i--)
+            {
+                if (activeInstances[i] != null)
+                {
+                    activeInstances[i].CleanupAndDestroy();
+                }
+            }
+            activeInstances.Clear();
+
             if (activeInstance != null)
             {
                 activeInstance.CleanupAndDestroy();
@@ -71,6 +113,7 @@ namespace LegoPuzzle.Runtime
             TutorialHandEffect effect = obj.AddComponent<TutorialHandEffect>();
             effect.InitializeUI(uiTarget, customHandPrefab);
             activeInstance = effect;
+            activeInstances.Add(effect);
         }
 
         private void InitializeUI(RectTransform uiTarget, GameObject customHandPrefab)
@@ -178,14 +221,26 @@ namespace LegoPuzzle.Runtime
 
         private void Update()
         {
-            if (targetPiece != null && !targetPiece.gameObject.activeInHierarchy)
+            if (targetPiece != null && (!targetPiece.gameObject.activeInHierarchy || targetPiece.IsExiting))
             {
-                Dismiss();
+                activeInstances.Remove(this);
+                if (activeInstance == this) activeInstance = null;
+                CleanupAndDestroy();
+                return;
             }
             if (targetUI != null && !targetUI.gameObject.activeInHierarchy)
             {
-                Dismiss();
+                activeInstances.Remove(this);
+                if (activeInstance == this) activeInstance = null;
+                CleanupAndDestroy();
+                return;
             }
+        }
+
+        private void OnDestroy()
+        {
+            activeInstances.Remove(this);
+            if (activeInstance == this) activeInstance = null;
         }
 
         private void CreateHandIndicator(GameObject customHandPrefab)
@@ -241,9 +296,16 @@ namespace LegoPuzzle.Runtime
 
             handObject.transform.position = startPos;
             
-            // Повертаємо спрайт так, щоб він лежав на площині (дивився вгору на камеру) 
-            // і завжди вказував пальцем "вгору" по екрану (вздовж осі Z), як справжня рука.
-            handObject.transform.rotation = Quaternion.LookRotation(Vector3.down, Vector3.forward);
+            // Орієнтуємо руку на камеру, щоб вона виглядала чітко та об'ємно під будь-яким кутом нахилу
+            Camera mainCam = Camera.main;
+            if (mainCam != null)
+            {
+                handObject.transform.rotation = mainCam.transform.rotation;
+            }
+            else
+            {
+                handObject.transform.rotation = Quaternion.LookRotation(Vector3.down, Vector3.forward);
+            }
         }
 
         private IEnumerator HandAnimationRoutine()

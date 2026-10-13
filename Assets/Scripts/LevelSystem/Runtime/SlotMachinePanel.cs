@@ -495,19 +495,40 @@ namespace LegoPuzzle.Runtime
                     if (HeartManager.Instance != null) HeartManager.Instance.AddHearts(amount);
                     break;
                 case SlotRewardType.HammerBooster:
-                    int curHammer = PlayerPrefs.GetInt("LEGO_BoosterCharges_Hammer", 3);
-                    PlayerPrefs.SetInt("LEGO_BoosterCharges_Hammer", curHammer + amount);
-                    PlayerPrefs.Save();
+                    HammerBooster hammer = FindAnyObjectByType<HammerBooster>(FindObjectsInactive.Include);
+                    if (hammer != null)
+                    {
+                        hammer.AddCharges(amount);
+                    }
+                    else if (SaveDataService.Instance != null && SaveDataService.Instance.Data != null)
+                    {
+                        SaveDataService.Instance.Data.hammerCharges += amount;
+                        SaveDataService.Instance.Save();
+                    }
                     break;
                 case SlotRewardType.FreezeBooster:
-                    int curFreeze = PlayerPrefs.GetInt("LEGO_BoosterCharges_Freeze", 3);
-                    PlayerPrefs.SetInt("LEGO_BoosterCharges_Freeze", curFreeze + amount);
-                    PlayerPrefs.Save();
+                    TimeFreezeBooster freeze = FindAnyObjectByType<TimeFreezeBooster>(FindObjectsInactive.Include);
+                    if (freeze != null)
+                    {
+                        freeze.AddCharges(amount);
+                    }
+                    else if (SaveDataService.Instance != null && SaveDataService.Instance.Data != null)
+                    {
+                        SaveDataService.Instance.Data.freezeCharges += amount;
+                        SaveDataService.Instance.Save();
+                    }
                     break;
                 case SlotRewardType.HintBooster:
-                    int curHint = PlayerPrefs.GetInt("LEGO_BoosterCharges_Hint", 3);
-                    PlayerPrefs.SetInt("LEGO_BoosterCharges_Hint", curHint + amount);
-                    PlayerPrefs.Save();
+                    HintBooster hint = FindAnyObjectByType<HintBooster>(FindObjectsInactive.Include);
+                    if (hint != null)
+                    {
+                        hint.AddCharges(amount);
+                    }
+                    else if (SaveDataService.Instance != null && SaveDataService.Instance.Data != null)
+                    {
+                        SaveDataService.Instance.Data.hintCharges += amount;
+                        SaveDataService.Instance.Save();
+                    }
                     break;
                 case SlotRewardType.JackpotSpecial:
                     if (CoinManager.HasInstance) CoinManager.Instance.AddCoins(amount * 2);
@@ -630,13 +651,23 @@ namespace LegoPuzzle.Runtime
 
         private void LoadFreeSpins()
         {
-            remainingFreeSpins = PlayerPrefs.GetInt("LEGO_LottoDailyFreeSpins", dailyFreeSpins);
+            if (SaveDataService.Instance != null && SaveDataService.Instance.Data != null)
+            {
+                remainingFreeSpins = SaveDataService.Instance.Data.lottoDailyFreeSpins;
+            }
+            else
+            {
+                remainingFreeSpins = dailyFreeSpins;
+            }
         }
 
         private void SaveFreeSpins()
         {
-            PlayerPrefs.SetInt("LEGO_LottoDailyFreeSpins", remainingFreeSpins);
-            PlayerPrefs.Save();
+            if (SaveDataService.Instance != null && SaveDataService.Instance.Data != null)
+            {
+                SaveDataService.Instance.Data.lottoDailyFreeSpins = remainingFreeSpins;
+                SaveDataService.Instance.Save();
+            }
         }
 
         private void HookButtons()

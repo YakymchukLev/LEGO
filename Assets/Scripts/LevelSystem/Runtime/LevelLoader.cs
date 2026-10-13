@@ -71,7 +71,35 @@ namespace LegoPuzzle.Runtime
         [Range(0.4f, 0.92f)]
         [SerializeField] private float targetScreenHeightRatio = 0.76f;
 
-        [Header("Зсув та обмеження камери")]
+        [Header("Зсув та кут камери (3D-вигляд)")]
+        [Tooltip("Кут нахилу камери по осі X у градусах (90 = вигляд строго зверху 2D, 65-75 = нахил під кутом для об'ємного 3D вигляду деталей і виступів)")]
+        [Range(45f, 90f)]
+        [SerializeField] private float cameraPitchAngle = 70f;
+
+        [Tooltip("Кут повороту камери навколо вертикальної осі Y у градусах (0 = строго прямо)")]
+        [Range(-30f, 30f)]
+        [SerializeField] private float cameraYawAngle = 0f;
+
+        public float CameraPitchAngle
+        {
+            get => (cameraPitchAngle > 20f) ? cameraPitchAngle : 70f;
+            set
+            {
+                cameraPitchAngle = Mathf.Clamp(value, 30f, 90f);
+                RefreshCameraFraming();
+            }
+        }
+
+        public float CameraYawAngle
+        {
+            get => cameraYawAngle;
+            set
+            {
+                cameraYawAngle = Mathf.Clamp(value, -45f, 45f);
+                RefreshCameraFraming();
+            }
+        }
+
         [Tooltip("Додатковий зсув камери по осі Z у світових одиницях (+Z опускає поле нижче на екрані для звільнення місця таймеру, -Z піднімає вище)")]
         [SerializeField] private float cameraVerticalOffset = 0f;
 
@@ -197,6 +225,11 @@ namespace LegoPuzzle.Runtime
         [SerializeField] private List<LevelData> allLevels = new List<LevelData>();
         [SerializeField] private int currentLevelIndex = 0;
 
+        public static LevelLoader Instance { get; private set; }
+        public static bool HasInstance => Instance != null;
+
+        public int CurrentLevelIndex => currentLevelIndex;
+
         [Tooltip("Автоматично зберігати номер останнього пройденого рівня між переходами в меню")]
         [SerializeField] private bool saveProgress = true;
 
@@ -228,6 +261,88 @@ namespace LegoPuzzle.Runtime
         public float RemainingFreezeTime { get; private set; } = 0f;
         public float FreezeDuration => freezeDuration;
 
+        public Camera GameCamera { get => gameCamera; set => gameCamera = value; }
+        public bool AutoCenterCamera => autoCenterCamera;
+        public bool AutoDetectLevelBounds => autoDetectLevelBounds;
+        public bool DynamicScaleByLevelSize => dynamicScaleByLevelSize;
+        public float SmallLevelScreenWidthRatio => smallLevelScreenWidthRatio;
+        public float SmallLevelScreenHeightRatio => smallLevelScreenHeightRatio;
+        public float LargeLevelScreenWidthRatio => largeLevelScreenWidthRatio;
+        public float LargeLevelScreenHeightRatio => largeLevelScreenHeightRatio;
+        public float SmallLevelThreshold => smallLevelThreshold;
+        public float LargeLevelThreshold => largeLevelThreshold;
+        public float CameraZoomMultiplier => cameraZoomMultiplier;
+        public float BoardPaddingCells => boardPaddingCells;
+        public float TargetScreenWidthRatio => targetScreenWidthRatio;
+        public float TargetScreenHeightRatio => targetScreenHeightRatio;
+        public float CameraVerticalOffset => cameraVerticalOffset;
+        public float MinCameraDistance => minCameraDistance;
+        public float MaxCameraDistance => maxCameraDistance;
+        public bool SmoothCameraTransition => smoothCameraTransition;
+        public float CameraTransitionDuration => cameraTransitionDuration;
+        public bool EnableVideoBackground => enableVideoBackground;
+        public LevelVideoBackground VideoBackground { get => videoBackground; set => videoBackground = value; }
+        public BlockPalette Palette => palette;
+        public LevelData TestLevelData => testLevelData;
+        public IReadOnlyList<LevelData> AllLevels => allLevels;
+        public AudioClip PieceExitSound => pieceExitSound;
+        public AudioSource AudioSource => audioSource;
+        public IReadOnlyDictionary<Vector2Int, GridCellView> SpawnedCells => spawnedCells;
+
+        private LevelCameraController cameraController;
+        public LevelCameraController CameraController
+        {
+            get
+            {
+                if (cameraController == null)
+                {
+                    cameraController = GetComponent<LevelCameraController>();
+                    if (cameraController == null && gameObject != null)
+                    {
+                        cameraController = gameObject.AddComponent<LevelCameraController>();
+                    }
+                    if (cameraController != null) cameraController.Initialize(this);
+                }
+                return cameraController;
+            }
+        }
+
+        private LevelMovementValidator movementValidator;
+        public LevelMovementValidator MovementValidator
+        {
+            get
+            {
+                if (movementValidator == null)
+                {
+                    movementValidator = GetComponent<LevelMovementValidator>();
+                    if (movementValidator == null && gameObject != null)
+                    {
+                        movementValidator = gameObject.AddComponent<LevelMovementValidator>();
+                    }
+                    if (movementValidator != null) movementValidator.Initialize(this);
+                }
+                return movementValidator;
+            }
+        }
+
+        private LevelBoosterService boosterService;
+        public LevelBoosterService BoosterService
+        {
+            get
+            {
+                if (boosterService == null)
+                {
+                    boosterService = GetComponent<LevelBoosterService>();
+                    if (boosterService == null && gameObject != null)
+                    {
+                        boosterService = gameObject.AddComponent<LevelBoosterService>();
+                    }
+                    if (boosterService != null) boosterService.Initialize(this);
+                }
+                return boosterService;
+            }
+        }
+
         public event Action<float> OnTimeFrozen;
         public event Action OnTimeUnfrozen;
 
@@ -256,8 +371,17 @@ namespace LegoPuzzle.Runtime
             Debug.Log("<color=green>[LevelLoader] First block move detected! Level timer started.</color>");
         }
 
+        private void EnsureServices()
+        {
+            _ = CameraController;
+            _ = MovementValidator;
+            _ = BoosterService;
+        }
+
         private void Awake()
         {
+            Instance = this;
+            EnsureServices();
             EnsureCamera();
 
             lastScreenWidth = Screen.width;
@@ -283,11 +407,7 @@ namespace LegoPuzzle.Runtime
         {
             if (gameCamera == null)
             {
-                gameCamera = Camera.main;
-                if (gameCamera == null)
-                {
-                    gameCamera = FindAnyObjectByType<Camera>();
-                }
+                gameCamera = CameraController.EnsureCamera();
             }
         }
 
@@ -350,6 +470,11 @@ namespace LegoPuzzle.Runtime
 
         private void OnDestroy()
         {
+            if (Instance == this)
+            {
+                Instance = null;
+            }
+
             if (GameSettingsManager.HasInstance)
             {
                 GameSettingsManager.Instance.OnSettingsChanged -= UpdateAudioFromSettings;
@@ -430,11 +555,25 @@ namespace LegoPuzzle.Runtime
                 return;
             }
 
+            EnsureAllLevelsPopulated();
+
+            if (allLevels != null && allLevels.Count > 0)
+            {
+                allLevels.RemoveAll(l => l == null);
+            }
+
             if (allLevels != null && allLevels.Count > 0)
             {
                 if (saveProgress)
                 {
-                    currentLevelIndex = PlayerPrefs.GetInt(PREFS_LEVEL_INDEX, 0);
+                    if (SaveDataService.Instance != null && SaveDataService.Instance.Data != null)
+                    {
+                        currentLevelIndex = SaveDataService.Instance.Data.currentLevelIndex;
+                    }
+                    else
+                    {
+                        currentLevelIndex = PlayerPrefs.GetInt(PREFS_LEVEL_INDEX, 0);
+                    }
                 }
 
                 if (currentLevelIndex < 0 || currentLevelIndex >= allLevels.Count)
@@ -445,12 +584,22 @@ namespace LegoPuzzle.Runtime
                 LevelData levelToLoad = allLevels[currentLevelIndex];
                 if (levelToLoad == null)
                 {
-                    currentLevelIndex = 0;
-                    levelToLoad = allLevels[0];
+                    for (int i = 0; i < allLevels.Count; i++)
+                    {
+                        if (allLevels[i] != null)
+                        {
+                            currentLevelIndex = i;
+                            levelToLoad = allLevels[i];
+                            break;
+                        }
+                    }
                 }
 
-                Debug.Log($"<color=cyan>LevelLoader: Loading level #{currentLevelIndex + 1} ('{levelToLoad.name}').</color>");
-                LoadLevel(levelToLoad);
+                if (levelToLoad != null)
+                {
+                    Debug.Log($"<color=cyan>LevelLoader: Loading level #{currentLevelIndex + 1} ('{levelToLoad.name}').</color>");
+                    LoadLevel(levelToLoad);
+                }
             }
             else if (testLevelData != null)
             {
@@ -553,6 +702,7 @@ namespace LegoPuzzle.Runtime
             }
 
             isTransitioningLevel = false;
+            isClaimingWinReward = false;
 
             // Ховаємо UI панелі результату перед початком рівня
             if (winPanel != null) winPanel.SetActive(false);
@@ -662,23 +812,31 @@ namespace LegoPuzzle.Runtime
             if (isTransitioningLevel) return;
             isTransitioningLevel = true;
 
+            EnsureAllLevelsPopulated();
+
+            if (allLevels != null && allLevels.Count > 0)
+            {
+                allLevels.RemoveAll(l => l == null);
+            }
+
             if (allLevels != null && allLevels.Count > 0)
             {
                 currentLevelIndex = (currentLevelIndex + 1) % allLevels.Count;
                 if (saveProgress)
                 {
-                    PlayerPrefs.SetInt(PREFS_LEVEL_INDEX, currentLevelIndex);
-                    PlayerPrefs.Save();
+                    if (SaveDataService.Instance != null && SaveDataService.Instance.Data != null)
+                    {
+                        SaveDataService.Instance.Data.currentLevelIndex = currentLevelIndex;
+                        SaveDataService.Instance.Save();
+                    }
+                    else
+                    {
+                        PlayerPrefs.SetInt(PREFS_LEVEL_INDEX, currentLevelIndex);
+                        PlayerPrefs.Save();
+                    }
                 }
 
-                if (currentLevelIndex <= 4)
-                {
-                    LoadLevel(allLevels[currentLevelIndex]);
-                }
-                else
-                {
-                    LoadMenuScene();
-                }
+                LoadLevel(allLevels[currentLevelIndex]);
             }
             else if (CurrentLevel != null)
             {
@@ -701,12 +859,45 @@ namespace LegoPuzzle.Runtime
                 currentLevelIndex = index;
                 if (saveProgress)
                 {
-                    PlayerPrefs.SetInt(PREFS_LEVEL_INDEX, currentLevelIndex);
-                    PlayerPrefs.Save();
+                    if (SaveDataService.Instance != null && SaveDataService.Instance.Data != null)
+                    {
+                        SaveDataService.Instance.Data.currentLevelIndex = currentLevelIndex;
+                        SaveDataService.Instance.Save();
+                    }
+                    else
+                    {
+                        PlayerPrefs.SetInt(PREFS_LEVEL_INDEX, currentLevelIndex);
+                        PlayerPrefs.Save();
+                    }
                 }
                 LoadLevel(allLevels[currentLevelIndex]);
             }
         }
+
+        public void LoadPrevLevel()
+        {
+            EnsureAllLevelsPopulated();
+            if (allLevels == null || allLevels.Count == 0) return;
+            int prev = currentLevelIndex - 1;
+            if (prev < 0) prev = allLevels.Count - 1;
+            LoadLevelByIndex(prev);
+        }
+
+        public void CompleteCurrentLevel()
+        {
+            if (isLevelWon || requiredPiecesToWin <= 0) return;
+            piecesExited = requiredPiecesToWin - 1;
+            HandleRequiredPieceVictoryCheck(false);
+        }
+
+        public void AddRemainingTime(float seconds)
+        {
+            if (!IsGameplayActive) return;
+            RemainingTime += seconds;
+            UpdateTimerUI(RemainingTime);
+        }
+
+        public void UpdateTimerUI() => UpdateTimerUI(RemainingTime);
 
         public void OnPauseButtonClicked()
         {
@@ -908,670 +1099,57 @@ namespace LegoPuzzle.Runtime
             }
         }
 
-        private Coroutine cameraTransitionCoroutine;
+        // =========================================================================
+        // Camera & Framing (Делегування до LevelCameraController)
+        // =========================================================================
 
-        public struct LevelActiveBounds
-        {
-            public int minX;
-            public int maxX;
-            public int minY;
-            public int maxY;
-            public int activeWidth => (maxX >= minX) ? (maxX - minX + 1) : 1;
-            public int activeHeight => (maxY >= minY) ? (maxY - minY + 1) : 1;
-            public float centerCellX => (minX + maxX) * 0.5f;
-            public float centerCellY => (minY + maxY) * 0.5f;
-            public bool hasValidCells;
-        }
-
-        /// <summary>
-        /// Автоматично розраховує фактичні межі ігрового поля (ігнорує порожні тайли сітки)
-        /// </summary>
-        public LevelActiveBounds GetLevelActiveBounds(LevelData levelData)
-        {
-            LevelActiveBounds bounds = new LevelActiveBounds
-            {
-                minX = int.MaxValue,
-                maxX = int.MinValue,
-                minY = int.MaxValue,
-                maxY = int.MinValue,
-                hasValidCells = false
-            };
-
-            if (autoDetectLevelBounds && levelData != null)
-            {
-                if (levelData.cells != null && levelData.cells.Count > 0)
-                {
-                    for (int i = 0; i < levelData.cells.Count; i++)
-                    {
-                        var cell = levelData.cells[i];
-                        if (cell.cellType != CellType.Empty)
-                        {
-                            if (cell.position.x < bounds.minX) bounds.minX = cell.position.x;
-                            if (cell.position.x > bounds.maxX) bounds.maxX = cell.position.x;
-                            if (cell.position.y < bounds.minY) bounds.minY = cell.position.y;
-                            if (cell.position.y > bounds.maxY) bounds.maxY = cell.position.y;
-                            bounds.hasValidCells = true;
-                        }
-                    }
-                }
-
-                if (levelData.pieces != null && levelData.pieces.Count > 0)
-                {
-                    for (int i = 0; i < levelData.pieces.Count; i++)
-                    {
-                        var piece = levelData.pieces[i];
-                        if (piece == null) continue;
-
-                        var occupiedCells = piece.GetOccupiedGridCells();
-                        if (occupiedCells != null)
-                        {
-                            for (int j = 0; j < occupiedCells.Count; j++)
-                            {
-                                Vector2Int p = occupiedCells[j];
-                                if (p.x < bounds.minX) bounds.minX = p.x;
-                                if (p.x > bounds.maxX) bounds.maxX = p.x;
-                                if (p.y < bounds.minY) bounds.minY = p.y;
-                                if (p.y > bounds.maxY) bounds.maxY = p.y;
-                                bounds.hasValidCells = true;
-                            }
-                        }
-                    }
-                }
-            }
-
-            if (!bounds.hasValidCells)
-            {
-                bounds.minX = 0;
-                bounds.maxX = Mathf.Max(0, (levelData != null ? levelData.gridWidth : 1) - 1);
-                bounds.minY = 0;
-                bounds.maxY = Mathf.Max(0, (levelData != null ? levelData.gridHeight : 1) - 1);
-                bounds.hasValidCells = true;
-            }
-
-            return bounds;
-        }
+        public LevelActiveBounds GetLevelActiveBounds(LevelData levelData) => CameraController.GetLevelActiveBounds(levelData);
 
         private void CenterCamera(LevelData levelData, bool forceInstant = false)
         {
-            if (!autoCenterCamera || levelData == null) return;
-            EnsureCamera();
-            if (gameCamera == null) return;
-
-            LevelActiveBounds bounds = GetLevelActiveBounds(levelData);
-
-            // Враховуємо позицію батьківського об'єкта / менеджера у просторі
-            Vector3 rootPos = (boardContainer != null) ? boardContainer.position : transform.position;
-            float centerX = rootPos.x + bounds.centerCellX * cellSize;
-            float centerZ = rootPos.z + bounds.centerCellY * cellSize;
-
-            // Визначаємо співвідношення сторін екрана
-            float aspect = (gameCamera.aspect > 0.01f) ? gameCamera.aspect : ((float)Screen.width / Mathf.Max(1, Screen.height));
-            if (aspect <= 0.01f) aspect = 9f / 16f;
-
-            float pad = Mathf.Max(0f, boardPaddingCells) * cellSize;
-            float boardWidth = bounds.activeWidth * cellSize + pad * 2f;
-            float boardHeight = bounds.activeHeight * cellSize + pad * 2f;
-
-            float safeWidthRatio;
-            float safeHeightRatio;
-
-            // Автоматично адаптуємо старі або занижені коефіцієнти зі збережених сцен
-            float effectiveSmallW = smallLevelScreenWidthRatio < 0.5f ? 0.94f : smallLevelScreenWidthRatio;
-            float effectiveLargeW = largeLevelScreenWidthRatio < 0.5f ? 0.93f : largeLevelScreenWidthRatio;
-            float effectiveSmallH = smallLevelScreenHeightRatio < 0.5f ? 0.82f : smallLevelScreenHeightRatio;
-            float effectiveLargeH = largeLevelScreenHeightRatio < 0.4f ? 0.74f : largeLevelScreenHeightRatio;
-
-            // Адаптивний розрахунок розміру: малі та великі рівні масштабуються для заповнення екрана
-            if (dynamicScaleByLevelSize)
-            {
-                float activeDimension = Mathf.Max(bounds.activeWidth, bounds.activeHeight);
-                float denom = Mathf.Max(0.01f, largeLevelThreshold - smallLevelThreshold);
-                float t = Mathf.Clamp01((activeDimension - smallLevelThreshold) / denom);
-                float smoothT = Mathf.SmoothStep(0f, 1f, t);
-
-                safeWidthRatio = Mathf.Lerp(effectiveSmallW, effectiveLargeW, smoothT);
-                safeHeightRatio = Mathf.Lerp(effectiveSmallH, effectiveLargeH, smoothT);
-            }
-            else
-            {
-                safeWidthRatio = (targetScreenWidthRatio <= 0.85f) ? 0.94f : targetScreenWidthRatio;
-                safeHeightRatio = (targetScreenHeightRatio <= 0.70f) ? 0.76f : targetScreenHeightRatio;
-            }
-
-            safeWidthRatio = Mathf.Clamp(safeWidthRatio, 0.2f, 0.98f);
-            safeHeightRatio = Mathf.Clamp(safeHeightRatio, 0.2f, 0.98f);
-
-            // Скільки вертикального простору камери потрібно, щоб поле зайняло safeWidthRatio по ширині
-            float visibleHeightByWidth = (boardWidth / safeWidthRatio) / aspect;
-
-            // Скільки вертикального простору камери потрібно, щоб поле зайняло safeHeightRatio по висоті
-            float visibleHeightByHeight = boardHeight / safeHeightRatio;
-
-            // Беремо максимум, щоб гарантувати, що поле не вилізе за межі екрана ні по ширині, ні по висоті
-            float visibleHeight = Mathf.Max(visibleHeightByWidth, visibleHeightByHeight);
-
-            float zoomMult = Mathf.Max(0.1f, cameraZoomMultiplier);
-            visibleHeight /= zoomMult;
-
-            Vector3 targetPosition;
-            float targetOrthoSize = visibleHeight * 0.5f;
-
-            if (gameCamera.orthographic)
-            {
-                targetOrthoSize = Mathf.Clamp(targetOrthoSize, 1.5f, 50f);
-                targetPosition = new Vector3(centerX, rootPos.y + 20f, centerZ + cameraVerticalOffset);
-            }
-            else
-            {
-                // Для перспективної камери розраховуємо точну дистанцію за кутом огляду (FOV)
-                float fovRad = Mathf.Clamp(gameCamera.fieldOfView, 10f, 120f) * Mathf.Deg2Rad;
-                float halfFovTan = Mathf.Tan(fovRad * 0.5f);
-                if (halfFovTan < 0.001f) halfFovTan = 0.57735f;
-
-                float distance = (visibleHeight * 0.5f) / halfFovTan;
-                distance = Mathf.Clamp(distance, minCameraDistance, maxCameraDistance);
-
-                targetPosition = new Vector3(centerX, rootPos.y + distance, centerZ + cameraVerticalOffset);
-            }
-
-            if (cameraTransitionCoroutine != null)
-            {
-                StopCoroutine(cameraTransitionCoroutine);
-                cameraTransitionCoroutine = null;
-            }
-
-            if (!forceInstant && smoothCameraTransition && Application.isPlaying && gameObject.activeInHierarchy)
-            {
-                cameraTransitionCoroutine = StartCoroutine(SmoothCameraTransitionRoutine(targetPosition, targetOrthoSize));
-            }
-            else
-            {
-                gameCamera.transform.position = targetPosition;
-                gameCamera.transform.rotation = Quaternion.Euler(90f, 0f, 0f);
-                if (gameCamera.orthographic)
-                {
-                    gameCamera.orthographicSize = targetOrthoSize;
-                }
-
-                if (videoBackground != null)
-                {
-                    videoBackground.UpdateQuadTransform();
-                }
-
-#if UNITY_EDITOR
-                if (!Application.isPlaying)
-                {
-                    UnityEditor.EditorUtility.SetDirty(gameCamera.transform);
-                }
-#endif
-            }
-        }
-
-        private IEnumerator SmoothCameraTransitionRoutine(Vector3 targetPos, float targetOrthoSize)
-        {
-            Vector3 startPos = gameCamera.transform.position;
-            float startOrtho = gameCamera.orthographicSize;
-            float duration = Mathf.Max(0.05f, cameraTransitionDuration);
-            float elapsed = 0f;
-
-            while (elapsed < duration)
-            {
-                elapsed += Time.unscaledDeltaTime;
-                float t = Mathf.SmoothStep(0f, 1f, elapsed / duration);
-
-                gameCamera.transform.position = Vector3.Lerp(startPos, targetPos, t);
-                gameCamera.transform.rotation = Quaternion.Euler(90f, 0f, 0f);
-
-                if (gameCamera.orthographic)
-                {
-                    gameCamera.orthographicSize = Mathf.Lerp(startOrtho, targetOrthoSize, t);
-                }
-
-                if (videoBackground != null)
-                {
-                    videoBackground.UpdateQuadTransform();
-                }
-
-                yield return null;
-            }
-
-            gameCamera.transform.position = targetPos;
-            gameCamera.transform.rotation = Quaternion.Euler(90f, 0f, 0f);
-            if (gameCamera.orthographic)
-            {
-                gameCamera.orthographicSize = targetOrthoSize;
-            }
-
-            if (videoBackground != null)
-            {
-                videoBackground.UpdateQuadTransform();
-            }
-
-            cameraTransitionCoroutine = null;
+            CameraController.CenterCamera(levelData, forceInstant);
         }
 
         private void EnsureVideoBackground()
         {
-            if (!enableVideoBackground)
-            {
-                if (videoBackground != null) videoBackground.gameObject.SetActive(false);
-                return;
-            }
-
-            if (videoBackground == null)
-            {
-                videoBackground = FindAnyObjectByType<LevelVideoBackground>();
-            }
-
-            if (videoBackground == null)
-            {
-                GameObject bgObj = new GameObject("LevelVideoBackground");
-                videoBackground = bgObj.AddComponent<LevelVideoBackground>();
-            }
-
-            if (videoBackground != null)
-            {
-                videoBackground.gameObject.SetActive(true);
-                videoBackground.SetupVideoBackground();
-            }
+            CameraController.EnsureVideoBackground();
         }
 
-        /// <summary>
-        /// Оновлює зум та позицію камери під поточний рівень (корисно при зміні орієнтації екрана або налаштувань)
-        /// </summary>
         public void RefreshCameraFraming()
         {
-            if (CurrentLevel != null)
-            {
-                CenterCamera(CurrentLevel, true);
-            }
-            else if (testLevelData != null)
-            {
-                CenterCamera(testLevelData, true);
-            }
+            CameraController.RefreshCameraFraming();
         }
 
 
-        public bool CanMovePieceTo(LegoPieceView movingPiece, Vector2Int newOrigin)
-        {
-            if (CurrentLevel == null || movingPiece == null || movingPiece.PieceData == null) return false;
+        // =========================================================================
+        // Movement & Collision Validation (Делегування до LevelMovementValidator)
+        // =========================================================================
 
-            var offsets = movingPiece.PieceData.shape != null
-                ? movingPiece.PieceData.shape.GetRotatedOffsets(movingPiece.PieceData.rotationSteps)
-                : new List<Vector2Int> { Vector2Int.zero };
-
-            Color pieceColor = movingPiece.PieceData.GetColor();
-            BlockColorType pieceColorType = movingPiece.PieceData.colorType;
-            MoveRestriction restriction = movingPiece.PieceData.moveRestriction;
-
-            if (restriction == MoveRestriction.Locked) return false;
-
-            foreach (var offset in offsets)
-            {
-                Vector2Int cellPos = newOrigin + offset;
-
-                // Перевірка меж сітки
-                if (!CurrentLevel.IsInsideGrid(cellPos.x, cellPos.y))
-                    return false;
-
-                CellData cellData = CurrentLevel.GetCell(cellPos.x, cellPos.y);
-
-                // Не можна ставати на порожні місця або перешкоди (повні, половинчасті та четвертинки)
-                if (cellData.cellType == CellType.Empty || cellData.cellType == CellType.Obstacle || cellData.cellType == CellType.HalfObstacle || cellData.cellType == CellType.QuarterObstacle)
-                    return false;
-
-                // На ворота (повні та напів-ворота) дозволено ставати ТІЛЬКИ якщо збігається колір та дозволений напрямок руху
-                if (cellData.cellType == CellType.ExitGate || cellData.cellType == CellType.HalfExitGate)
-                {
-                    bool colorMatches = (cellData.gateColorType == BlockColorType.Universal) ||
-                                        (cellData.gateColorType == pieceColorType) ||
-                                        ColorsMatch(pieceColor, cellData.GetEffectiveColor());
-
-                    if (!colorMatches)
-                        return false;
-
-                    if (restriction == MoveRestriction.HorizontalOnly &&
-                        (cellData.exitDirection == ExitDirection.Up || cellData.exitDirection == ExitDirection.Down))
-                    {
-                        return false;
-                    }
-
-                    if (restriction == MoveRestriction.VerticalOnly &&
-                        (cellData.exitDirection == ExitDirection.Left || cellData.exitDirection == ExitDirection.Right))
-                    {
-                        return false;
-                    }
-                }
-
-                // Перевірка колізій з іншими блоками LEGO
-                foreach (var otherPiece in activePieces)
-                {
-                    if (otherPiece == movingPiece || !otherPiece.gameObject.activeSelf) continue;
-
-                    var otherCells = otherPiece.GetCurrentOccupiedCells();
-                    if (otherCells.Contains(cellPos))
-                    {
-                        return false;
-                    }
-                }
-            }
-
-            return true;
-        }
+        public bool CanMovePieceTo(LegoPieceView movingPiece, Vector2Int newOrigin) => MovementValidator.CanMovePieceTo(movingPiece, newOrigin);
 
         public void GetSlideRangeHorizontal(LegoPieceView piece, Vector2Int currentOrigin, out int minStepX, out int maxStepX)
         {
-            minStepX = 0;
-            maxStepX = 0;
-            if (CurrentLevel == null) return;
-
-            for (int step = -1; step >= -CurrentLevel.gridWidth; step--)
-            {
-                if (CanMovePieceTo(piece, currentOrigin + new Vector2Int(step, 0)))
-                    minStepX = step;
-                else
-                    break;
-            }
-
-            for (int step = 1; step <= CurrentLevel.gridWidth; step++)
-            {
-                if (CanMovePieceTo(piece, currentOrigin + new Vector2Int(step, 0)))
-                    maxStepX = step;
-                else
-                    break;
-            }
+            MovementValidator.GetSlideRangeHorizontal(piece, currentOrigin, out minStepX, out maxStepX);
         }
 
         public void GetSlideRangeVertical(LegoPieceView piece, Vector2Int currentOrigin, out int minStepY, out int maxStepY)
         {
-            minStepY = 0;
-            maxStepY = 0;
-            if (CurrentLevel == null) return;
-
-            for (int step = -1; step >= -CurrentLevel.gridHeight; step--)
-            {
-                if (CanMovePieceTo(piece, currentOrigin + new Vector2Int(0, step)))
-                    minStepY = step;
-                else
-                    break;
-            }
-
-            for (int step = 1; step <= CurrentLevel.gridHeight; step++)
-            {
-                if (CanMovePieceTo(piece, currentOrigin + new Vector2Int(0, step)))
-                    maxStepY = step;
-                else
-                    break;
-            }
+            MovementValidator.GetSlideRangeVertical(piece, currentOrigin, out minStepY, out maxStepY);
         }
 
         public void GetSlideRange(LegoPieceView piece, Vector2Int currentOrigin, out int minStepX, out int maxStepX, out int minStepY, out int maxStepY)
         {
-            GetSlideRangeHorizontal(piece, currentOrigin, out minStepX, out maxStepX);
-            GetSlideRangeVertical(piece, currentOrigin, out minStepY, out maxStepY);
+            MovementValidator.GetSlideRange(piece, currentOrigin, out minStepX, out maxStepX, out minStepY, out maxStepY);
         }
 
         public bool CheckIfPieceExits(LegoPieceView piece, Vector2Int currentOrigin, out ExitDirection exitDirection)
         {
-            exitDirection = ExitDirection.Up;
-            if (piece == null || piece.PieceData == null) return false;
-            if (piece.PieceData.moveRestriction == MoveRestriction.Locked) return false;
-
-            var offsets = piece.PieceData.shape != null
-                ? piece.PieceData.shape.GetRotatedOffsets(piece.PieceData.rotationSteps)
-                : new List<Vector2Int> { Vector2Int.zero };
-
-            List<Vector2Int> occupied = new List<Vector2Int>(offsets.Count);
-            foreach (var offset in offsets)
-            {
-                occupied.Add(currentOrigin + offset);
-            }
-
-            Color pieceColor = piece.PieceData.GetColor();
-            BlockColorType pieceColorType = piece.PieceData.colorType;
-
-            // Перевіряємо всі можливі напрямки виходу
-            ExitDirection[] directions = new ExitDirection[]
-            {
-                ExitDirection.Up,
-                ExitDirection.Down,
-                ExitDirection.Left,
-                ExitDirection.Right
-            };
-
-            foreach (var dir in directions)
-            {
-                if (piece.PieceData.moveRestriction == MoveRestriction.HorizontalOnly && (dir == ExitDirection.Up || dir == ExitDirection.Down))
-                    continue;
-
-                if (piece.PieceData.moveRestriction == MoveRestriction.VerticalOnly && (dir == ExitDirection.Left || dir == ExitDirection.Right))
-                    continue;
-
-                if (CanPieceExitInDirection(piece, currentOrigin, occupied, pieceColorType, pieceColor, dir))
-                {
-                    exitDirection = dir;
-                    return true;
-                }
-            }
-
-            return false;
+            return MovementValidator.CheckIfPieceExits(piece, currentOrigin, out exitDirection);
         }
 
-        private bool CanPieceExitInDirection(LegoPieceView piece, Vector2Int origin, List<Vector2Int> occupied, BlockColorType pieceColorType, Color pieceColor, ExitDirection dir)
+        public bool ColorsMatch(Color a, Color b)
         {
-            if (occupied == null || occupied.Count == 0) return false;
-
-            switch (dir)
-            {
-                case ExitDirection.Up:
-                {
-                    int maxY = int.MinValue;
-                    HashSet<int> occupiedCols = new HashSet<int>();
-                    foreach (var cell in occupied)
-                    {
-                        if (cell.y > maxY) maxY = cell.y;
-                        occupiedCols.Add(cell.x);
-                    }
-
-                    // Варіант 1: Деталь вже знаходиться на лінії воріт (maxY)
-                    bool currentMatch = true;
-                    foreach (int x in occupiedCols)
-                    {
-                        Vector2Int gatePos = new Vector2Int(x, maxY);
-                        if (!IsMatchingExitGate(gatePos, dir, pieceColorType, pieceColor))
-                        {
-                            currentMatch = false;
-                            break;
-                        }
-                    }
-                    if (currentMatch) return true;
-
-                    // Варіант 2: Деталь стоїть поруч впритик (на сусідній лінії maxY + 1)
-                    bool adjacentMatch = true;
-                    foreach (int x in occupiedCols)
-                    {
-                        Vector2Int gatePos = new Vector2Int(x, maxY + 1);
-                        if (!IsMatchingExitGate(gatePos, dir, pieceColorType, pieceColor))
-                        {
-                            adjacentMatch = false;
-                            break;
-                        }
-                    }
-                    if (adjacentMatch)
-                    {
-                        if (CanMovePieceTo(piece, origin + Vector2Int.up))
-                        {
-                            return true;
-                        }
-                    }
-
-                    return false;
-                }
-
-                case ExitDirection.Down:
-                {
-                    int minY = int.MaxValue;
-                    HashSet<int> occupiedCols = new HashSet<int>();
-                    foreach (var cell in occupied)
-                    {
-                        if (cell.y < minY) minY = cell.y;
-                        occupiedCols.Add(cell.x);
-                    }
-
-                    // Варіант 1: Деталь вже знаходиться на лінії воріт (minY)
-                    bool currentMatch = true;
-                    foreach (int x in occupiedCols)
-                    {
-                        Vector2Int gatePos = new Vector2Int(x, minY);
-                        if (!IsMatchingExitGate(gatePos, dir, pieceColorType, pieceColor))
-                        {
-                            currentMatch = false;
-                            break;
-                        }
-                    }
-                    if (currentMatch) return true;
-
-                    // Варіант 2: Деталь стоїть поруч впритик (на сусідній лінії minY - 1)
-                    bool adjacentMatch = true;
-                    foreach (int x in occupiedCols)
-                    {
-                        Vector2Int gatePos = new Vector2Int(x, minY - 1);
-                        if (!IsMatchingExitGate(gatePos, dir, pieceColorType, pieceColor))
-                        {
-                            adjacentMatch = false;
-                            break;
-                        }
-                    }
-                    if (adjacentMatch)
-                    {
-                        if (CanMovePieceTo(piece, origin + Vector2Int.down))
-                        {
-                            return true;
-                        }
-                    }
-
-                    return false;
-                }
-
-                case ExitDirection.Right:
-                {
-                    int maxX = int.MinValue;
-                    HashSet<int> occupiedRows = new HashSet<int>();
-                    foreach (var cell in occupied)
-                    {
-                        if (cell.x > maxX) maxX = cell.x;
-                        occupiedRows.Add(cell.y);
-                    }
-
-                    // Варіант 1: Деталь вже на лінії воріт (maxX)
-                    bool currentMatch = true;
-                    foreach (int y in occupiedRows)
-                    {
-                        Vector2Int gatePos = new Vector2Int(maxX, y);
-                        if (!IsMatchingExitGate(gatePos, dir, pieceColorType, pieceColor))
-                        {
-                            currentMatch = false;
-                            break;
-                        }
-                    }
-                    if (currentMatch) return true;
-
-                    // Варіант 2: Деталь впритик поруч (maxX + 1)
-                    bool adjacentMatch = true;
-                    foreach (int y in occupiedRows)
-                    {
-                        Vector2Int gatePos = new Vector2Int(maxX + 1, y);
-                        if (!IsMatchingExitGate(gatePos, dir, pieceColorType, pieceColor))
-                        {
-                            adjacentMatch = false;
-                            break;
-                        }
-                    }
-                    if (adjacentMatch)
-                    {
-                        if (CanMovePieceTo(piece, origin + Vector2Int.right))
-                        {
-                            return true;
-                        }
-                    }
-
-                    return false;
-                }
-
-                case ExitDirection.Left:
-                {
-                    int minX = int.MaxValue;
-                    HashSet<int> occupiedRows = new HashSet<int>();
-                    foreach (var cell in occupied)
-                    {
-                        if (cell.x < minX) minX = cell.x;
-                        occupiedRows.Add(cell.y);
-                    }
-
-                    // Варіант 1: Деталь вже на лінії воріт (minX)
-                    bool currentMatch = true;
-                    foreach (int y in occupiedRows)
-                    {
-                        Vector2Int gatePos = new Vector2Int(minX, y);
-                        if (!IsMatchingExitGate(gatePos, dir, pieceColorType, pieceColor))
-                        {
-                            currentMatch = false;
-                            break;
-                        }
-                    }
-                    if (currentMatch) return true;
-
-                    // Варіант 2: Деталь впритик поруч (minX - 1)
-                    bool adjacentMatch = true;
-                    foreach (int y in occupiedRows)
-                    {
-                        Vector2Int gatePos = new Vector2Int(minX - 1, y);
-                        if (!IsMatchingExitGate(gatePos, dir, pieceColorType, pieceColor))
-                        {
-                            adjacentMatch = false;
-                            break;
-                        }
-                    }
-                    if (adjacentMatch)
-                    {
-                        if (CanMovePieceTo(piece, origin + Vector2Int.left))
-                        {
-                            return true;
-                        }
-                    }
-
-                    return false;
-                }
-            }
-
-            return false;
-        }
-
-        private bool IsMatchingExitGate(Vector2Int pos, ExitDirection expectedDir, BlockColorType pieceColorType, Color pieceColor)
-        {
-            if (spawnedCells.TryGetValue(pos, out GridCellView cellView))
-            {
-                if ((cellView.CellType == CellType.ExitGate || cellView.CellType == CellType.HalfExitGate) && cellView.ExitDirection == expectedDir)
-                {
-                    if (cellView.GateColorType == BlockColorType.Universal)
-                        return true;
-
-                    if (cellView.GateColorType == pieceColorType)
-                        return true;
-
-                    if (ColorsMatch(pieceColor, cellView.GateColor))
-                        return true;
-                }
-            }
-
-            return false;
-        }
-
-        private bool ColorsMatch(Color a, Color b)
-        {
-            return Mathf.Abs(a.r - b.r) < 0.2f &&
-                   Mathf.Abs(a.g - b.g) < 0.2f &&
-                   Mathf.Abs(a.b - b.b) < 0.2f;
+            return MovementValidator.ColorsMatch(a, b);
         }
 
         /// <summary>
@@ -1772,6 +1350,39 @@ namespace LegoPuzzle.Runtime
             Debug.Log("<color=yellow>❄ Дія заморозки часу завершилася. Зворотний відлік відновлено!</color>");
         }
 
+        public void PlayBlockCrackSound()
+        {
+            EnsureAudioSource();
+            if (freezeSound != null && audioSource != null)
+            {
+                audioSource.pitch = UnityEngine.Random.Range(1.2f, 1.45f);
+                audioSource.PlayOneShot(freezeSound, 0.9f);
+            }
+            else
+            {
+                PlayPieceMoveSound();
+            }
+        }
+
+        public void PlayBlockUnfreezeSound()
+        {
+            EnsureAudioSource();
+            if (unfreezeSound != null && audioSource != null)
+            {
+                audioSource.pitch = 1.0f;
+                audioSource.PlayOneShot(unfreezeSound, 1f);
+            }
+            else if (freezeSound != null && audioSource != null)
+            {
+                audioSource.pitch = 0.85f;
+                audioSource.PlayOneShot(freezeSound, 1f);
+            }
+            else
+            {
+                PlayPieceExitSound();
+            }
+        }
+
         public void UpdateTimerUI(float remainingSeconds)
         {
             int clamped = Mathf.Max(0, Mathf.CeilToInt(remainingSeconds));
@@ -1963,6 +1574,21 @@ namespace LegoPuzzle.Runtime
 
             // 6. Гарантування наявності панелі магазину бустерів під Canvas
             EnsureBoosterShopPanel(canvas);
+
+            // 7. Гарантування наявності бейджів балансу на кнопках бустерів
+            EnsureBoosterBadges();
+        }
+
+        private void EnsureBoosterBadges()
+        {
+            var freeze = FindAnyObjectByType<TimeFreezeBooster>(FindObjectsInactive.Include);
+            if (freeze != null) freeze.EnsureChargesBadge();
+
+            var hint = FindAnyObjectByType<HintBooster>(FindObjectsInactive.Include);
+            if (hint != null) hint.EnsureChargesBadge();
+
+            var hammer = FindAnyObjectByType<HammerBooster>(FindObjectsInactive.Include);
+            if (hammer != null) hammer.EnsureChargesBadge();
         }
 
         private void EnsureBoosterShopPanel(Canvas canvas)
@@ -2218,11 +1844,49 @@ namespace LegoPuzzle.Runtime
         }
 
 
+        private void EnsureAllLevelsPopulated()
+        {
+            if (allLevels != null && allLevels.Count > 0 && !allLevels.Exists(l => l == null))
+            {
+                return;
+            }
+
+            // 1. Завантаження з Resources/Levels (працює і в Editor, і в Standalone/Mobile Build)
+            var loadedLevels = Resources.LoadAll<LevelData>("Levels");
+            if (loadedLevels != null && loadedLevels.Length > 0)
+            {
+                var list = new List<LevelData>(loadedLevels);
+                list.Sort((a, b) => a.levelIndex.CompareTo(b.levelIndex));
+                allLevels = list;
+                return;
+            }
+
+#if UNITY_EDITOR
+            // 2. Fallback для Unity Editor: пошук через AssetDatabase
+            string[] guids = UnityEditor.AssetDatabase.FindAssets("t:LevelData");
+            if (guids != null && guids.Length > 0)
+            {
+                var list = new List<LevelData>();
+                foreach (var guid in guids)
+                {
+                    string path = UnityEditor.AssetDatabase.GUIDToAssetPath(guid);
+                    var level = UnityEditor.AssetDatabase.LoadAssetAtPath<LevelData>(path);
+                    if (level != null && !list.Contains(level)) list.Add(level);
+                }
+                list.Sort((a, b) => a.levelIndex.CompareTo(b.levelIndex));
+                allLevels = list;
+            }
+#endif
+        }
+
         private TMP_FontAsset GetGameFontAsset()
         {
-            TMP_FontAsset font = null;
+            TMP_FontAsset font = Resources.Load<TMP_FontAsset>("Fonts/rimouski sb SDF");
 #if UNITY_EDITOR
-            font = UnityEditor.AssetDatabase.LoadAssetAtPath<TMP_FontAsset>("Assets/Fonts/rimouski sb SDF.asset");
+            if (font == null)
+            {
+                font = UnityEditor.AssetDatabase.LoadAssetAtPath<TMP_FontAsset>("Assets/Fonts/rimouski sb SDF.asset");
+            }
 #endif
             if (font == null)
             {
@@ -2441,10 +2105,21 @@ namespace LegoPuzzle.Runtime
             lostPanelObj.SetActive(false);
         }
 
-        private void HandlePieceExited(LegoPieceView piece)
+        public void RemoveActivePiece(LegoPieceView piece)
         {
-            NotifyBlockMoved();
+            if (activePieces != null && piece != null)
+            {
+                activePieces.Remove(piece);
+            }
+        }
+
+        public void HandleRequiredPieceVictoryCheck(bool fromHammer = false)
+        {
             piecesExited++;
+            if (fromHammer)
+            {
+                Debug.Log($"<color=orange>🔨 Блок знищено молотком! Зараховано прогрес: {piecesExited}/{requiredPiecesToWin}</color>");
+            }
 
             if (GameSettingsManager.HasInstance)
             {
@@ -2459,39 +2134,58 @@ namespace LegoPuzzle.Runtime
                 IsGameplayActive = false;
                 PlayLevelWonSound();
 
-                // Робимо кнопку повернення в меню неактивною після проходження рівня (але саме зображення залишається)
                 if (pauseButton != null)
                 {
                     pauseButton.interactable = false;
                 }
 
-                // Зберігаємо індекс наступного рівня у PlayerPrefs для продовження гри з меню
-
                 if (saveProgress && allLevels != null && allLevels.Count > 0)
                 {
                     int nextIndex = (currentLevelIndex + 1) % allLevels.Count;
-                    PlayerPrefs.SetInt(PREFS_LEVEL_INDEX, nextIndex);
-                    PlayerPrefs.Save();
+                    if (SaveDataService.Instance != null && SaveDataService.Instance.Data != null)
+                    {
+                        SaveDataService.Instance.Data.currentLevelIndex = nextIndex;
+                        SaveDataService.Instance.Save();
+                    }
+                    else
+                    {
+                        PlayerPrefs.SetInt(PREFS_LEVEL_INDEX, nextIndex);
+                        PlayerPrefs.Save();
+                    }
                 }
 
-                // Автоматично нараховуємо +1 гем за проходження будь-якого рівня
                 if (GemManager.Instance != null)
                 {
                     GemManager.Instance.AddGems(1);
                 }
 
                 OnLevelWon?.Invoke();
-                Debug.Log("<color=green>Level completed! Victory! Saved next level progress and awarded +1 Gem.</color>");
+                if (fromHammer)
+                {
+                    Debug.Log("<color=green>Level completed! Victory through Hammer! Saved next level progress and awarded +1 Gem.</color>");
+                }
+                else
+                {
+                    Debug.Log("<color=green>Level completed! Victory! Saved next level progress and awarded +1 Gem.</color>");
+                }
 
                 if (winPanel != null)
                 {
                     StartCoroutine(ShowWinPanelDelayed(winPanelDelay));
                 }
             }
-            else
+            else if (!fromHammer)
             {
                 CheckAndTriggerAutoExits();
             }
+        }
+
+        private void HandlePieceExited(LegoPieceView piece)
+        {
+            NotifyBlockMoved();
+            RemoveActivePiece(piece);
+            NotifyPieceDestroyed(piece);
+            HandleRequiredPieceVictoryCheck(fromHammer: false);
         }
 
         /// <summary>
@@ -2500,416 +2194,69 @@ namespace LegoPuzzle.Runtime
         /// </summary>
         public void DestroyPieceWithHammer(LegoPieceView piece)
         {
-            if (piece == null) return;
-            NotifyBlockMoved();
+            BoosterService.DestroyPieceWithHammer(piece);
+        }
 
-            bool wasRequired = piece.PieceData != null && piece.PieceData.isRequiredForWin;
+        /// <summary>
+        /// Сповіщає всі заморожені блоки на полі про знищення або вихід іншого блоку,
+        /// щоб зменшити їхній індивідуальний лічильник заморозки.
+        /// </summary>
+        public void NotifyPieceDestroyed(LegoPieceView destroyedPiece)
+        {
+            if (activePieces == null || activePieces.Count == 0) return;
 
-            if (activePieces.Contains(piece))
+            List<LegoPieceView> frozenPieces = new List<LegoPieceView>();
+            for (int i = 0; i < activePieces.Count; i++)
             {
-                activePieces.Remove(piece);
-            }
-
-            piece.gameObject.SetActive(false);
-            Destroy(piece.gameObject, 0.5f);
-
-            if (wasRequired)
-            {
-                piecesExited++;
-                Debug.Log($"<color=orange>🔨 Блок знищено молотком! Зараховано прогрес: {piecesExited}/{requiredPiecesToWin}</color>");
-
-                if (GameSettingsManager.HasInstance)
+                var p = activePieces[i];
+                if (p != null && p != destroyedPiece && p.gameObject.activeSelf && p.IsFrozen)
                 {
-                    GameSettingsManager.Instance.TriggerHapticExit();
-                }
-
-                if (piecesExited >= requiredPiecesToWin)
-                {
-                    if (isLevelWon) return;
-                    isLevelWon = true;
-
-                    IsGameplayActive = false;
-                    PlayLevelWonSound();
-
-                    if (pauseButton != null)
-                    {
-                        pauseButton.interactable = false;
-                    }
-
-                    if (saveProgress && allLevels != null && allLevels.Count > 0)
-                    {
-                        int nextIndex = (currentLevelIndex + 1) % allLevels.Count;
-                        PlayerPrefs.SetInt(PREFS_LEVEL_INDEX, nextIndex);
-                        PlayerPrefs.Save();
-                    }
-
-                    // Автоматично нараховуємо +1 гем за проходження будь-якого рівня
-                    if (GemManager.Instance != null)
-                    {
-                        GemManager.Instance.AddGems(1);
-                    }
-
-                    OnLevelWon?.Invoke();
-                    Debug.Log("<color=green>Level completed! Victory through Hammer! Saved next level progress and awarded +1 Gem.</color>");
-
-                    if (winPanel != null)
-                    {
-                        StartCoroutine(ShowWinPanelDelayed(winPanelDelay));
-                    }
+                    frozenPieces.Add(p);
                 }
             }
-            else
+
+            for (int i = 0; i < frozenPieces.Count; i++)
             {
-                Debug.Log("<color=orange>🔨 Блок-перешкоду знищено молотком! Сітка звільнилася.</color>");
+                var fp = frozenPieces[i];
+                if (fp != null && fp.gameObject.activeSelf && fp.IsFrozen)
+                {
+                    fp.DecrementFreeze();
+                }
             }
         }
 
-        private Coroutine cameraShakeCoroutine;
+        // =========================================================================
+        // Booster & Camera Effects (Делегування до LevelBoosterService та LevelCameraController)
+        // =========================================================================
 
-        /// <summary>
-        /// Струшує ігрову камеру для передачі сили удару.
-        /// </summary>
         public void ShakeCamera(float duration = 0.18f, float intensity = 0.35f)
         {
-            Camera cam = gameCamera != null ? gameCamera : Camera.main;
-            if (cam == null) return;
-
-            if (cameraShakeCoroutine != null)
-            {
-                StopCoroutine(cameraShakeCoroutine);
-            }
-            cameraShakeCoroutine = StartCoroutine(CameraShakeRoutine(cam, duration, intensity));
+            CameraController.ShakeCamera(duration, intensity);
         }
 
-        private IEnumerator CameraShakeRoutine(Camera cam, float duration, float intensity)
-        {
-            Vector3 originalCamPos = cam.transform.position;
-            float elapsed = 0f;
-
-            while (elapsed < duration)
-            {
-                elapsed += Time.unscaledDeltaTime;
-                float trauma = 1f - Mathf.Clamp01(elapsed / duration);
-                float shakeAmount = intensity * trauma * trauma;
-
-                Vector3 randomOffset = new Vector3(
-                    UnityEngine.Random.Range(-1f, 1f) * shakeAmount,
-                    UnityEngine.Random.Range(-0.3f, 0.3f) * shakeAmount,
-                    UnityEngine.Random.Range(-1f, 1f) * shakeAmount
-                );
-
-                cam.transform.position = originalCamPos + randomOffset;
-                yield return null;
-            }
-
-            cam.transform.position = originalCamPos;
-            cameraShakeCoroutine = null;
-        }
-
-        /// <summary>
-        /// Відтворює звук удару молотка зі зниженим пітчем для глухого важкого звуку.
-        /// </summary>
         public void PlaySmashSound(AudioClip customClip = null)
         {
-            AudioClip clipToPlay = customClip;
-            if (clipToPlay == null)
-            {
-                clipToPlay = pieceExitSound != null ? pieceExitSound : (palette != null ? palette.pieceExitSound : null);
-            }
-
-            if (clipToPlay != null && audioSource != null)
-            {
-                audioSource.pitch = UnityEngine.Random.Range(0.70f, 0.82f);
-                audioSource.PlayOneShot(clipToPlay, 1.25f);
-            }
+            BoosterService.PlaySmashSound(customClip);
         }
 
-        /// <summary>
-        /// Показує візуальну підказку найкращого наступного ходу.
-        /// Повертає true, якщо підказку знайдено і показано.
-        /// </summary>
         public bool ShowMoveHint(AudioClip customChime = null)
         {
-            if (FindBestHintMove(out LegoPieceView piece, out Vector2Int delta, out bool leadsToExit))
-            {
-                HintIndicatorEffect.Show(piece, delta, cellSize);
-                PlayHintChime(customChime);
-                Debug.Log($"<color=gold>💡 Підказка: Рухайте деталь '{piece.name}' на {delta} {(leadsToExit ? "(Вихід у ворота!)" : "(Розчищення шляху)")}</color>");
-                return true;
-            }
-            else
-            {
-                Debug.LogWarning("LevelLoader: Не знайдено доступного ходу для підказки.");
-                return false;
-            }
+            return BoosterService.ShowMoveHint(customChime);
         }
 
         public void DismissMoveHint()
         {
-            HintIndicatorEffect.Dismiss();
+            BoosterService.DismissMoveHint();
         }
 
         public void PlayHintChime(AudioClip customClip = null)
         {
-            AudioClip clip = customClip;
-            if (clip == null)
-            {
-                clip = pieceExitSound != null ? pieceExitSound : (palette != null ? palette.pieceExitSound : null);
-            }
-
-            if (clip != null && audioSource != null)
-            {
-                audioSource.pitch = 1.35f; // Підвищений кришталевий тон
-                audioSource.PlayOneShot(clip, 1.15f);
-            }
+            BoosterService.PlayHintChime(customClip);
         }
 
-        /// <summary>
-        /// Знаходить найбільш вигідний наступний хід для гравця (пріоритет: прямий вихід,
-        /// розблокування виходу для іншого блоку або рух у напрямку воріт).
-        /// </summary>
         public bool FindBestHintMove(out LegoPieceView bestPiece, out Vector2Int bestDelta, out bool leadsToExit)
         {
-            bestPiece = null;
-            bestDelta = Vector2Int.zero;
-            leadsToExit = false;
-
-            if (!IsGameplayActive || CurrentLevel == null || activePieces == null || activePieces.Count == 0)
-                return false;
-
-            List<LegoPieceView> movablePieces = new List<LegoPieceView>();
-            foreach (var p in activePieces)
-            {
-                if (p != null && p.gameObject.activeInHierarchy && p.PieceData != null && p.PieceData.moveRestriction != MoveRestriction.Locked)
-                {
-                    movablePieces.Add(p);
-                }
-            }
-
-            if (movablePieces.Count == 0) return false;
-
-            // ==============================================================
-            // ПРІОРИТЕТ 1: Прямий вихід у ворота вже за цей хід!
-            // ==============================================================
-            foreach (var piece in movablePieces)
-            {
-                GetSlideRangeHorizontal(piece, piece.CurrentOrigin, out int minX, out int maxX);
-                for (int x = 1; x <= maxX; x++)
-                {
-                    Vector2Int testPos = piece.CurrentOrigin + new Vector2Int(x, 0);
-                    if (CheckIfPieceExits(piece, testPos, out _))
-                    {
-                        bestPiece = piece;
-                        bestDelta = new Vector2Int(x, 0);
-                        leadsToExit = true;
-                        return true;
-                    }
-                }
-                for (int x = -1; x >= minX; x--)
-                {
-                    Vector2Int testPos = piece.CurrentOrigin + new Vector2Int(x, 0);
-                    if (CheckIfPieceExits(piece, testPos, out _))
-                    {
-                        bestPiece = piece;
-                        bestDelta = new Vector2Int(x, 0);
-                        leadsToExit = true;
-                        return true;
-                    }
-                }
-
-                GetSlideRangeVertical(piece, piece.CurrentOrigin, out int minY, out int maxY);
-                for (int y = 1; y <= maxY; y++)
-                {
-                    Vector2Int testPos = piece.CurrentOrigin + new Vector2Int(0, y);
-                    if (CheckIfPieceExits(piece, testPos, out _))
-                    {
-                        bestPiece = piece;
-                        bestDelta = new Vector2Int(0, y);
-                        leadsToExit = true;
-                        return true;
-                    }
-                }
-                for (int y = -1; y >= minY; y--)
-                {
-                    Vector2Int testPos = piece.CurrentOrigin + new Vector2Int(0, y);
-                    if (CheckIfPieceExits(piece, testPos, out _))
-                    {
-                        bestPiece = piece;
-                        bestDelta = new Vector2Int(0, y);
-                        leadsToExit = true;
-                        return true;
-                    }
-                }
-            }
-
-            // ==============================================================
-            // ПРІОРИТЕТ 2: Хід деталі A, що дозволяє іншій деталі B вийти у ворота!
-            // ==============================================================
-            foreach (var pieceA in movablePieces)
-            {
-                List<Vector2Int> validMovesA = GetValidMovesForPiece(pieceA);
-                Vector2Int origPosA = pieceA.CurrentOrigin;
-
-                foreach (var deltaA in validMovesA)
-                {
-                    pieceA.SetCurrentOriginDirect(origPosA + deltaA);
-
-                    bool unblockedAnother = false;
-                    foreach (var pieceB in movablePieces)
-                    {
-                        if (pieceB == pieceA) continue;
-                        if (CanPieceExitAnywhere(pieceB))
-                        {
-                            unblockedAnother = true;
-                            break;
-                        }
-                    }
-
-                    pieceA.SetCurrentOriginDirect(origPosA);
-
-                    if (unblockedAnother)
-                    {
-                        bestPiece = pieceA;
-                        bestDelta = deltaA;
-                        leadsToExit = false;
-                        return true;
-                    }
-                }
-            }
-
-            // ==============================================================
-            // ПРІОРИТЕТ 3: Хід, що максимально скорочує відстань до відповідних воріт
-            // ==============================================================
-            float bestDistanceImprovement = 0f;
-            foreach (var piece in movablePieces)
-            {
-                List<Vector2Int> matchingGates = GetMatchingExitGatePositions(piece);
-                if (matchingGates.Count == 0) continue;
-
-                float currentMinDist = GetMinDistanceToGates(piece.CurrentOrigin, matchingGates);
-                List<Vector2Int> validMoves = GetValidMovesForPiece(piece);
-
-                foreach (var delta in validMoves)
-                {
-                    Vector2Int newPos = piece.CurrentOrigin + delta;
-                    float newDist = GetMinDistanceToGates(newPos, matchingGates);
-                    float improvement = currentMinDist - newDist;
-
-                    if (improvement > bestDistanceImprovement)
-                    {
-                        bestDistanceImprovement = improvement;
-                        bestPiece = piece;
-                        bestDelta = delta;
-                    }
-                }
-            }
-
-            if (bestPiece != null && bestDelta != Vector2Int.zero)
-            {
-                return true;
-            }
-
-            // ==============================================================
-            // ПРІОРИТЕТ 4: Будь-який найбільший хід, що звільняє простір
-            // ==============================================================
-            int maxMoveDistance = 0;
-            foreach (var piece in movablePieces)
-            {
-                List<Vector2Int> validMoves = GetValidMovesForPiece(piece);
-                foreach (var delta in validMoves)
-                {
-                    int dist = Mathf.Abs(delta.x) + Mathf.Abs(delta.y);
-                    if (dist > maxMoveDistance)
-                    {
-                        maxMoveDistance = dist;
-                        bestPiece = piece;
-                        bestDelta = delta;
-                    }
-                }
-            }
-
-            return bestPiece != null && bestDelta != Vector2Int.zero;
-        }
-
-        private List<Vector2Int> GetValidMovesForPiece(LegoPieceView piece)
-        {
-            List<Vector2Int> moves = new List<Vector2Int>();
-            if (piece == null || piece.PieceData == null) return moves;
-
-            GetSlideRangeHorizontal(piece, piece.CurrentOrigin, out int minX, out int maxX);
-            for (int x = 1; x <= maxX; x++) moves.Add(new Vector2Int(x, 0));
-            for (int x = -1; x >= minX; x--) moves.Add(new Vector2Int(x, 0));
-
-            GetSlideRangeVertical(piece, piece.CurrentOrigin, out int minY, out int maxY);
-            for (int y = 1; y <= maxY; y++) moves.Add(new Vector2Int(0, y));
-            for (int y = -1; y >= minY; y--) moves.Add(new Vector2Int(0, y));
-
-            return moves;
-        }
-
-        private bool CanPieceExitAnywhere(LegoPieceView piece)
-        {
-            if (piece == null || piece.PieceData == null) return false;
-
-            GetSlideRangeHorizontal(piece, piece.CurrentOrigin, out int minX, out int maxX);
-            for (int x = 1; x <= maxX; x++)
-            {
-                if (CheckIfPieceExits(piece, piece.CurrentOrigin + new Vector2Int(x, 0), out _)) return true;
-            }
-            for (int x = -1; x >= minX; x--)
-            {
-                if (CheckIfPieceExits(piece, piece.CurrentOrigin + new Vector2Int(x, 0), out _)) return true;
-            }
-
-            GetSlideRangeVertical(piece, piece.CurrentOrigin, out int minY, out int maxY);
-            for (int y = 1; y <= maxY; y++)
-            {
-                if (CheckIfPieceExits(piece, piece.CurrentOrigin + new Vector2Int(0, y), out _)) return true;
-            }
-            for (int y = -1; y >= minY; y--)
-            {
-                if (CheckIfPieceExits(piece, piece.CurrentOrigin + new Vector2Int(0, y), out _)) return true;
-            }
-
-            return false;
-        }
-
-        private List<Vector2Int> GetMatchingExitGatePositions(LegoPieceView piece)
-        {
-            List<Vector2Int> gates = new List<Vector2Int>();
-            if (piece == null || piece.PieceData == null) return gates;
-
-            Color pieceColor = piece.PieceData.GetColor();
-            BlockColorType pieceColorType = piece.PieceData.colorType;
-
-            foreach (var kvp in spawnedCells)
-            {
-                var cell = kvp.Value;
-                if (cell != null && (cell.CellType == CellType.ExitGate || cell.CellType == CellType.HalfExitGate))
-                {
-                    bool colorMatch = (cell.GateColorType == BlockColorType.Universal) ||
-                                      (cell.GateColorType == pieceColorType) ||
-                                      ColorsMatch(pieceColor, cell.GateColor);
-
-                    if (colorMatch)
-                    {
-                        gates.Add(kvp.Key);
-                    }
-                }
-            }
-
-            return gates;
-        }
-
-        private float GetMinDistanceToGates(Vector2Int pos, List<Vector2Int> gates)
-        {
-            float min = float.MaxValue;
-            foreach (var g in gates)
-            {
-                float d = Mathf.Abs(pos.x - g.x) + Mathf.Abs(pos.y - g.y);
-                if (d < min) min = d;
-            }
-            return min;
+            return BoosterService.FindBestHintMove(out bestPiece, out bestDelta, out leadsToExit);
         }
 
         private System.Collections.IEnumerator ShowWinPanelDelayed(float delay)
@@ -2957,6 +2304,11 @@ namespace LegoPuzzle.Runtime
         [ContextMenu("Reset saved progress (to Level 1)")]
         public void ResetProgress()
         {
+            if (SaveDataService.Instance != null && SaveDataService.Instance.Data != null)
+            {
+                SaveDataService.Instance.Data.currentLevelIndex = 0;
+                SaveDataService.Instance.Save();
+            }
             PlayerPrefs.DeleteKey(PREFS_LEVEL_INDEX);
             PlayerPrefs.Save();
             currentLevelIndex = 0;

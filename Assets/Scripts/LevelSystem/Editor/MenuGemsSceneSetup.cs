@@ -26,7 +26,25 @@ namespace LegoPuzzle.Editor
             var activeScene = UnityEngine.SceneManagement.SceneManager.GetActiveScene();
             if (activeScene == null || !activeScene.isLoaded) return;
 
-            Canvas canvas = Object.FindAnyObjectByType<Canvas>();
+            Canvas canvas = null;
+            Canvas[] allCanvases = Object.FindObjectsByType<Canvas>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            foreach (var c in allCanvases)
+            {
+                if (c == null) continue;
+                if (c.name.Contains("Dev")) continue;
+                if (c.transform.Find("DownPanel") != null || c.transform.Find("SettingsButton") != null || c.name == "Canvas")
+                {
+                    canvas = c;
+                    break;
+                }
+            }
+            if (canvas == null && allCanvases.Length > 0)
+            {
+                foreach (var c in allCanvases)
+                {
+                    if (c != null && !c.name.Contains("Dev")) { canvas = c; break; }
+                }
+            }
             if (canvas == null) return;
 
             // Only setup in Menu scenes or scenes with MenuHeartsUI / MenuCoinsUI

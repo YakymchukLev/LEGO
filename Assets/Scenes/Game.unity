@@ -1108,43 +1108,6 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 441411569}
   m_CullTransparentMesh: 1
---- !u!84 &468574380
-RenderTexture:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_Name: VideoBackground_RT
-  m_ImageContentsHash:
-    serializedVersion: 2
-    Hash: 00000000000000000000000000000000
-  m_IsAlphaChannelOptional: 0
-  serializedVersion: 6
-  m_Width: 720
-  m_Height: 1280
-  m_AntiAliasing: 1
-  m_MipCount: -1
-  m_DepthStencilFormat: 0
-  m_ColorFormat: 4
-  m_MipMap: 0
-  m_GenerateMips: 1
-  m_SRGB: 1
-  m_UseDynamicScale: 0
-  m_UseDynamicScaleExplicit: 0
-  m_BindMS: 0
-  m_EnableCompatibleFormat: 1
-  m_EnableRandomWrite: 0
-  m_TextureSettings:
-    serializedVersion: 2
-    m_FilterMode: 1
-    m_Aniso: 1
-    m_MipBias: 0
-    m_WrapU: 1
-    m_WrapV: 1
-    m_WrapW: 1
-  m_Dimension: 2
-  m_VolumeDepth: 1
-  m_ShadowSamplingMode: 2
 --- !u!1 &545353795
 GameObject:
   m_ObjectHideFlags: 0
@@ -1575,9 +1538,9 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 730175553}
   serializedVersion: 2
-  m_LocalRotation: {x: 0.7071068, y: -0, z: -0, w: 0.7071068}
-  m_LocalPosition: {x: 2.5, y: -1.5, z: 2.5}
-  m_LocalScale: {x: 9.029242, y: 16.051987, z: 1}
+  m_LocalRotation: {x: 0.57357645, y: -0, z: -0, w: 0.81915206}
+  m_LocalPosition: {x: 2.5, y: -106.725914, z: 41.345047}
+  m_LocalScale: {x: 85.46406, y: 151.93611, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 1619535081}
@@ -1605,7 +1568,7 @@ MeshRenderer:
   m_RenderingLayerMask: 1
   m_RendererPriority: 0
   m_Materials:
-  - {fileID: 1115679550}
+  - {fileID: 812224466}
   m_StaticBatchInfo:
     firstSubMesh: 0
     subMeshCount: 0
@@ -1771,6 +1734,59 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 751546832}
   m_CullTransparentMesh: 1
+--- !u!21 &812224466
+Material:
+  serializedVersion: 8
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_Name: VideoBackground_Material
+  m_Shader: {fileID: 4800000, guid: 650dd9526735d5b46b79224bc6e94025, type: 3}
+  m_Parent: {fileID: 0}
+  m_ModifiedSerializedProperties: 0
+  m_ValidKeywords: []
+  m_InvalidKeywords: []
+  m_LightmapFlags: 4
+  m_EnableInstancingVariants: 0
+  m_DoubleSidedGI: 0
+  m_CustomRenderQueue: 1000
+  stringTagMap: {}
+  disabledShaderPasses: []
+  m_LockedProperties: 
+  m_SavedProperties:
+    serializedVersion: 3
+    m_TexEnvs:
+    - _BaseMap:
+        m_Texture: {fileID: 915258952}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _MainTex:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    m_Ints: []
+    m_Floats:
+    - _AddPrecomputedVelocity: 0
+    - _AlphaClip: 0
+    - _AlphaToMask: 0
+    - _Blend: 0
+    - _BlendOp: 0
+    - _Cull: 0
+    - _Cutoff: 0.5
+    - _DstBlend: 0
+    - _DstBlendAlpha: 0
+    - _QueueOffset: 0
+    - _SampleGI: 0
+    - _SrcBlend: 1
+    - _SrcBlendAlpha: 1
+    - _Surface: 0
+    - _ZWrite: 1
+    m_Colors:
+    - _BaseColor: {r: 1, g: 1, b: 1, a: 1}
+    - _Color: {r: 0.5, g: 0.5, b: 0.5, a: 1}
+  m_BuildTextureStacks: []
+  m_AllowLocking: 1
 --- !u!1 &868058083
 GameObject:
   m_ObjectHideFlags: 0
@@ -1846,6 +1862,43 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 868058083}
   m_CullTransparentMesh: 1
+--- !u!84 &915258952
+RenderTexture:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_Name: VideoBackground_RT
+  m_ImageContentsHash:
+    serializedVersion: 2
+    Hash: 00000000000000000000000000000000
+  m_IsAlphaChannelOptional: 0
+  serializedVersion: 6
+  m_Width: 720
+  m_Height: 1280
+  m_AntiAliasing: 1
+  m_MipCount: -1
+  m_DepthStencilFormat: 0
+  m_ColorFormat: 4
+  m_MipMap: 0
+  m_GenerateMips: 1
+  m_SRGB: 1
+  m_UseDynamicScale: 0
+  m_UseDynamicScaleExplicit: 0
+  m_BindMS: 0
+  m_EnableCompatibleFormat: 1
+  m_EnableRandomWrite: 0
+  m_TextureSettings:
+    serializedVersion: 2
+    m_FilterMode: 1
+    m_Aniso: 1
+    m_MipBias: 0
+    m_WrapU: 1
+    m_WrapV: 1
+    m_WrapW: 1
+  m_Dimension: 2
+  m_VolumeDepth: 1
+  m_ShadowSamplingMode: 2
 --- !u!1 &976055934
 GameObject:
   m_ObjectHideFlags: 0
@@ -2374,61 +2427,6 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1113079104}
   m_CullTransparentMesh: 1
---- !u!21 &1115679550
-Material:
-  serializedVersion: 8
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_Name: VideoBackground_Material
-  m_Shader: {fileID: 4800000, guid: 650dd9526735d5b46b79224bc6e94025, type: 3}
-  m_Parent: {fileID: 0}
-  m_ModifiedSerializedProperties: 0
-  m_ValidKeywords: []
-  m_InvalidKeywords: []
-  m_LightmapFlags: 4
-  m_EnableInstancingVariants: 0
-  m_DoubleSidedGI: 1
-  m_CustomRenderQueue: 2000
-  stringTagMap:
-    RenderType: Opaque
-  disabledShaderPasses:
-  - MOTIONVECTORS
-  m_LockedProperties: 
-  m_SavedProperties:
-    serializedVersion: 3
-    m_TexEnvs:
-    - _BaseMap:
-        m_Texture: {fileID: 468574380}
-        m_Scale: {x: 1, y: 1}
-        m_Offset: {x: 0, y: 0}
-    - _MainTex:
-        m_Texture: {fileID: 468574380}
-        m_Scale: {x: 1, y: 1}
-        m_Offset: {x: 0, y: 0}
-    m_Ints: []
-    m_Floats:
-    - _AddPrecomputedVelocity: 0
-    - _AlphaClip: 0
-    - _AlphaToMask: 0
-    - _Blend: 0
-    - _BlendOp: 0
-    - _Cull: 0
-    - _Cutoff: 0.5
-    - _DstBlend: 0
-    - _DstBlendAlpha: 0
-    - _QueueOffset: 0
-    - _SampleGI: 0
-    - _SrcBlend: 1
-    - _SrcBlendAlpha: 1
-    - _Surface: 0
-    - _ZWrite: 1
-    m_Colors:
-    - _BaseColor: {r: 1, g: 1, b: 1, a: 1}
-    - _Color: {r: 1, g: 1, b: 1, a: 1}
-  m_BuildTextureStacks: []
-  m_AllowLocking: 1
 --- !u!1 &1216965621
 GameObject:
   m_ObjectHideFlags: 0
@@ -3453,6 +3451,7 @@ GameObject:
   - component: {fileID: 1619535080}
   - component: {fileID: 1619535082}
   - component: {fileID: 1619535083}
+  - component: {fileID: 1619535084}
   m_Layer: 0
   m_Name: LevelManager
   m_TagString: Untagged
@@ -3490,6 +3489,8 @@ MonoBehaviour:
   boardPaddingCells: 0.05
   targetScreenWidthRatio: 0.94
   targetScreenHeightRatio: 0.76
+  cameraPitchAngle: 70
+  cameraYawAngle: 0
   cameraVerticalOffset: 0
   minCameraDistance: 3.5
   maxCameraDistance: 45
@@ -3537,18 +3538,25 @@ MonoBehaviour:
   - {fileID: 11400000, guid: 55a80d7ebfafab24eb8c213ce50a8452, type: 2}
   - {fileID: 11400000, guid: 9f25b04ae2c23424499bdbc056f1fd39, type: 2}
   - {fileID: 11400000, guid: 2276deaf5b278af42ac72f8dbbc416b2, type: 2}
-  - {fileID: 11400000, guid: a4d4efde375237c43a72fff91a808065, type: 2}
-  - {fileID: 11400000, guid: 350d86d85c8ccb34ba453adfcca442ed, type: 2}
-  - {fileID: 11400000, guid: fefdd469e29cd3b429e16fe7fc174b39, type: 2}
-  - {fileID: 11400000, guid: a4f2e7f66b8a0664b9081c5cb1b9b78d, type: 2}
-  - {fileID: 11400000, guid: 5830392703dc3864cb1cc57f6b69d61b, type: 2}
-  - {fileID: 11400000, guid: 5484fe3aae89d454bb0f470eb4ccb6a8, type: 2}
-  - {fileID: 11400000, guid: fe4523f6739f633419a8cf8961a50885, type: 2}
-  - {fileID: 11400000, guid: 5f9569e4bbf091149833abcb02805627, type: 2}
-  - {fileID: 11400000, guid: f2e383228088fe947a16cf9c29f7acf1, type: 2}
-  - {fileID: 11400000, guid: cc2c004f5fc4877449a09c47e0f07669, type: 2}
-  - {fileID: 11400000, guid: 5f153ffc29b76444883982507f47b984, type: 2}
-  - {fileID: 11400000, guid: f168ed12ca5bfcd4abdc68a30ff20342, type: 2}
+  - {fileID: 11400000, guid: 40473fad20b036649988df5cf25c9c07, type: 2}
+  - {fileID: 11400000, guid: 18de666b653c7aa438b2448e860fff53, type: 2}
+  - {fileID: 11400000, guid: 1cdc5dd24684a404f82026b93ca782cc, type: 2}
+  - {fileID: 11400000, guid: e2264076533c00c47beff10a0608635e, type: 2}
+  - {fileID: 11400000, guid: 91df3a6cafb38e341bb668dc7f0f465e, type: 2}
+  - {fileID: 11400000, guid: 9009aca2db550d2438f255f3ade8e08c, type: 2}
+  - {fileID: 11400000, guid: 662a84fdce3ac184a9166b88c26d4045, type: 2}
+  - {fileID: 11400000, guid: 647d744a7ff9c6d45bcdd252cab12f37, type: 2}
+  - {fileID: 11400000, guid: d4b24a3c0b0b2014c9743f3cd6eed2ca, type: 2}
+  - {fileID: 11400000, guid: df76492f94b67e24f997c54e0057e2df, type: 2}
+  - {fileID: 11400000, guid: a23c3a13ef831a34a949cae2dc97a491, type: 2}
+  - {fileID: 11400000, guid: e72740d019bb0cb45b6f70518486d7e5, type: 2}
+  - {fileID: 11400000, guid: 72c1b28f593a68b4cb898f9ca9bd47a9, type: 2}
+  - {fileID: 11400000, guid: aa4e851f04e73ff438aa6a1e836e7e8b, type: 2}
+  - {fileID: 11400000, guid: 17df539833cfe2a41a0db371c4c6bce5, type: 2}
+  - {fileID: 11400000, guid: a2bb4b50dbf9ed14693b00a03f3039c3, type: 2}
+  - {fileID: 11400000, guid: a8bfe39e599306343a4f3f6274f61358, type: 2}
+  - {fileID: 11400000, guid: 51f8809ff40f1154d937b60def576148, type: 2}
+  - {fileID: 11400000, guid: a47dd510a18033b43bebd16b61ab1420, type: 2}
   currentLevelIndex: 0
   saveProgress: 1
   overrideWithTestLevel: 0
@@ -3604,7 +3612,7 @@ VideoPlayer:
   m_TargetCameraAlpha: 1
   m_TargetCamera3DLayout: 0
   m_TargetCamera: {fileID: 0}
-  m_TargetTexture: {fileID: 468574380}
+  m_TargetTexture: {fileID: 915258952}
   m_TimeReference: 0
   m_TargetMaterialRenderer: {fileID: 0}
   m_TargetMaterialProperty: <noninit>
@@ -3628,6 +3636,18 @@ VideoPlayer:
   m_WaitForFirstFrame: 1
   m_FrameReadyEventEnabled: 0
   m_VideoShaders: []
+--- !u!114 &1619535084
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1619535079}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 30ee2cb424ce4803bf1a2c8308ed1849, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
 --- !u!1 &1632097433
 GameObject:
   m_ObjectHideFlags: 0
@@ -5473,8 +5493,8 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 2034363469}
   serializedVersion: 2
-  m_LocalRotation: {x: 0.7071068, y: 0, z: 0, w: 0.7071068}
-  m_LocalPosition: {x: -5.593137, y: 9.686265, z: -4.046404}
+  m_LocalRotation: {x: 0.57357645, y: 0, z: 0, w: 0.81915206}
+  m_LocalPosition: {x: -5.593137, y: 8.97829, z: -8.061533}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []

@@ -21,12 +21,21 @@ public class MenuButtonController : MonoBehaviour
 
     public static int GetSavedLevelIndex()
     {
+        if (SaveDataService.Instance != null && SaveDataService.Instance.Data != null)
+        {
+            return SaveDataService.Instance.Data.currentLevelIndex;
+        }
         return PlayerPrefs.GetInt(PREFS_LEVEL_INDEX, 0);
     }
 
     [ContextMenu("Reset saved progress (to Level 1)")]
     public void ResetSavedLevelProgress()
     {
+        if (SaveDataService.Instance != null && SaveDataService.Instance.Data != null)
+        {
+            SaveDataService.Instance.Data.currentLevelIndex = 0;
+            SaveDataService.Instance.Save();
+        }
         PlayerPrefs.DeleteKey(PREFS_LEVEL_INDEX);
         PlayerPrefs.Save();
         Debug.Log("<color=yellow>MenuButtonController: Progress reset! Next game will start from Level 1.</color>");

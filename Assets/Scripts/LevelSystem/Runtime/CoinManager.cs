@@ -67,32 +67,32 @@ namespace LegoPuzzle.Runtime
         }
 
         /// <summary>
-        /// Loads coins from PlayerPrefs or initializes starting amount.
+        /// Loads coins from SaveDataService or initializes starting amount.
         /// </summary>
         public void LoadCoins()
         {
-            if (!PlayerPrefs.HasKey(PREFS_INIT_FLAG))
+            if (SaveDataService.Instance != null && SaveDataService.Instance.Data != null)
             {
-                Coins = Mathf.Max(0, defaultInitialCoins);
-                PlayerPrefs.SetInt(PREFS_COINS, Coins);
-                PlayerPrefs.SetInt(PREFS_INIT_FLAG, 1);
-                PlayerPrefs.Save();
+                Coins = Mathf.Max(0, SaveDataService.Instance.Data.coins);
             }
             else
             {
-                Coins = Mathf.Max(0, PlayerPrefs.GetInt(PREFS_COINS, defaultInitialCoins));
+                Coins = Mathf.Max(0, defaultInitialCoins);
             }
 
             OnCoinsChanged?.Invoke(Coins);
         }
 
         /// <summary>
-        /// Saves current coin balance to PlayerPrefs.
+        /// Saves current coin balance to SaveDataService.
         /// </summary>
         public void SaveCoins()
         {
-            PlayerPrefs.SetInt(PREFS_COINS, Coins);
-            PlayerPrefs.Save();
+            if (SaveDataService.Instance != null && SaveDataService.Instance.Data != null)
+            {
+                SaveDataService.Instance.Data.coins = Coins;
+                SaveDataService.Instance.Save();
+            }
         }
 
         /// <summary>

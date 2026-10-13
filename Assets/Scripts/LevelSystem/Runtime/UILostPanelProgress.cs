@@ -281,8 +281,11 @@ namespace LegoPuzzle.Runtime
             var tmp = GetComponentInChildren<TMP_Text>(true);
             if (tmp != null && tmp.font != null) return tmp.font;
 
+            var f = Resources.Load<TMP_FontAsset>("Fonts/rimouski sb SDF");
+            if (f != null) return f;
+
 #if UNITY_EDITOR
-            var f = UnityEditor.AssetDatabase.LoadAssetAtPath<TMP_FontAsset>("Assets/Fonts/rimouski sb SDF.asset");
+            f = UnityEditor.AssetDatabase.LoadAssetAtPath<TMP_FontAsset>("Assets/Fonts/rimouski sb SDF.asset");
             if (f != null) return f;
 #endif
             return null;

@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
@@ -68,6 +69,8 @@ namespace LegoPuzzle.Runtime
 
         public static bool IsTargeting { get; private set; } = false;
         public static HammerBooster ActiveInstance { get; private set; }
+        public static bool IsExecutingStrike => ActiveInstance != null && ActiveInstance.isExecutingStrike;
+        public static bool IsHammerActive => IsTargeting || IsExecutingStrike;
 
         public int AvailableCharges => availableCharges;
 
@@ -90,13 +93,18 @@ namespace LegoPuzzle.Runtime
                 UIButtonPressEffect.AttachTo(gameObject);
             }
 
-#if UNITY_EDITOR
             if (hammerPrefab == null)
             {
-                hammerPrefab = UnityEditor.AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Prefabs/hammer.prefab");
-            }
+                hammerPrefab = Resources.Load<GameObject>("Prefabs/hammer");
+#if UNITY_EDITOR
+                if (hammerPrefab == null)
+                {
+                    hammerPrefab = UnityEditor.AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Prefabs/hammer.prefab");
+                }
 #endif
+            }
 
+            EnsureChargesBadge();
             InitOrLoadCharges();
         }
 
@@ -104,17 +112,23 @@ namespace LegoPuzzle.Runtime
         {
             if (!saveChargesAcrossLevels) return;
 
-            if (PlayerPrefs.HasKey(PREFS_HAMMER_CHARGES))
+            if (SaveDataService.Instance != null && SaveDataService.Instance.Data != null)
             {
-                availableCharges = PlayerPrefs.GetInt(PREFS_HAMMER_CHARGES);
+                availableCharges = SaveDataService.Instance.Data.hammerCharges;
             }
             else
             {
-                int initial = availableCharges >= 0 ? availableCharges : defaultInitialCharges;
-                if (initial < 0) initial = 0;
-                PlayerPrefs.SetInt(PREFS_HAMMER_CHARGES, initial);
-                PlayerPrefs.Save();
-                availableCharges = initial;
+                availableCharges = availableCharges >= 0 ? availableCharges : defaultInitialCharges;
+            }
+        }
+
+        private void SaveCharges()
+        {
+            if (!saveChargesAcrossLevels) return;
+            if (SaveDataService.Instance != null && SaveDataService.Instance.Data != null)
+            {
+                SaveDataService.Instance.Data.hammerCharges = availableCharges;
+                SaveDataService.Instance.Save();
             }
         }
 
@@ -122,11 +136,7 @@ namespace LegoPuzzle.Runtime
         public void SetChargesToZero()
         {
             availableCharges = 0;
-            if (saveChargesAcrossLevels)
-            {
-                PlayerPrefs.SetInt(PREFS_HAMMER_CHARGES, 0);
-                PlayerPrefs.Save();
-            }
+            SaveCharges();
             UpdateChargesUI();
             Debug.Log("<color=yellow>Hammer: Charges set to 0. Next click opens shop panel!</color>");
         }
@@ -135,17 +145,15 @@ namespace LegoPuzzle.Runtime
         public void SetChargesToThree()
         {
             availableCharges = 3;
-            if (saveChargesAcrossLevels)
-            {
-                PlayerPrefs.SetInt(PREFS_HAMMER_CHARGES, 3);
-                PlayerPrefs.Save();
-            }
+            SaveCharges();
             UpdateChargesUI();
         }
 
         private void OnEnable()
         {
             ActiveInstance = this;
+            EnsureChargesBadge();
+            InitOrLoadCharges();
             if (boosterButton != null)
             {
                 boosterButton.onClick.RemoveListener(OnBoosterButtonClicked);
@@ -252,57 +260,51 @@ namespace LegoPuzzle.Runtime
         {
             if (!IsTargeting) return;
 
-            LegoPieceView targetPiece = null;
+            EnsureLevelLoader();
 
-            // 1. Спробуємо знайти деталь, яку найкраще порухати
-            if (levelLoader != null)
-            {
-                if (levelLoader.FindBestHintMove(out LegoPieceView hintPiece, out _, out _))
-                {
-                    if (hintPiece != null && hintPiece.gameObject.activeInHierarchy)
-                    {
-                        targetPiece = hintPiece;
-                    }
-                }
-            }
+            // Знаходимо всі активні блоки на полі, щоб показати руку-показчик над КОЖНИМ з них
+            List<LegoPieceView> piecesToTarget = new List<LegoPieceView>();
 
-            // 2. Якщо не знайдено, беремо будь-яку активну деталь на полі
-            if (targetPiece == null && levelLoader != null && levelLoader.ActivePieces != null)
+            if (levelLoader != null && levelLoader.ActivePieces != null)
             {
                 foreach (var piece in levelLoader.ActivePieces)
                 {
-                    if (piece != null && piece.gameObject.activeInHierarchy)
+                    if (piece != null && piece.gameObject.activeInHierarchy && !piece.IsExiting)
                     {
-                        targetPiece = piece;
-                        break;
+                        piecesToTarget.Add(piece);
                     }
                 }
             }
 
-            if (targetPiece == null)
+            if (piecesToTarget.Count == 0)
             {
                 var allPieces = FindObjectsByType<LegoPieceView>(FindObjectsSortMode.None);
                 foreach (var piece in allPieces)
                 {
-                    if (piece != null && piece.gameObject.activeInHierarchy)
+                    if (piece != null && piece.gameObject.activeInHierarchy && !piece.IsExiting)
                     {
-                        targetPiece = piece;
-                        break;
+                        piecesToTarget.Add(piece);
                     }
                 }
             }
 
-            if (targetPiece != null)
+            if (piecesToTarget.Count > 0)
             {
                 GameObject handPrefab = levelLoader != null ? levelLoader.TutorialHandPrefab : null;
-#if UNITY_EDITOR
                 if (handPrefab == null)
                 {
-                    handPrefab = UnityEditor.AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Prefabs/tutorial_hand.prefab");
-                }
+                    handPrefab = Resources.Load<GameObject>("Prefabs/tutorial_hand");
+#if UNITY_EDITOR
+                    if (handPrefab == null)
+                    {
+                        handPrefab = UnityEditor.AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Prefabs/tutorial_hand.prefab");
+                    }
 #endif
+                }
                 float pieceCellSize = levelLoader != null ? levelLoader.CellSize : 1f;
-                TutorialHandEffect.Show(targetPiece, Vector2Int.zero, pieceCellSize, handPrefab);
+
+                // Показуємо анімовану руку над кожним блоком на полі
+                TutorialHandEffect.ShowAll(piecesToTarget, Vector2Int.zero, pieceCellSize, handPrefab);
             }
         }
 
@@ -366,11 +368,7 @@ namespace LegoPuzzle.Runtime
             if (availableCharges > 0)
             {
                 availableCharges--;
-                if (saveChargesAcrossLevels)
-                {
-                    PlayerPrefs.SetInt(PREFS_HAMMER_CHARGES, availableCharges);
-                    PlayerPrefs.Save();
-                }
+                SaveCharges();
             }
             UpdateChargesUI();
 
@@ -430,17 +428,27 @@ namespace LegoPuzzle.Runtime
             transform.localPosition = origPos;
         }
 
-        private void UpdateChargesUI()
+        public void EnsureChargesBadge()
         {
-            string textValue = (availableCharges < 0) ? "∞" : $"{chargesPrefix}{availableCharges}";
+            if (chargesTMPText == null && chargesLegacyText == null)
+            {
+                chargesTMPText = BoosterBadgeUI.EnsureBadge(transform, chargesTMPText, chargesPrefix);
+            }
+        }
+
+        public void UpdateChargesUI()
+        {
+            EnsureChargesBadge();
 
             if (chargesTMPText != null)
             {
-                chargesTMPText.text = textValue;
+                BoosterBadgeUI.UpdateBadge(chargesTMPText, availableCharges, chargesPrefix);
             }
+
             if (chargesLegacyText != null)
             {
-                chargesLegacyText.text = textValue;
+                chargesLegacyText.gameObject.SetActive(availableCharges >= 0);
+                chargesLegacyText.text = (availableCharges < 0) ? "∞" : $"{chargesPrefix}{availableCharges}";
             }
 
             if (boosterButton != null)
@@ -451,24 +459,29 @@ namespace LegoPuzzle.Runtime
 
         public void AddCharges(int count)
         {
-            if (availableCharges < 0) return;
+            if (availableCharges < 0) availableCharges = 0;
             availableCharges += count;
-            if (saveChargesAcrossLevels)
-            {
-                PlayerPrefs.SetInt(PREFS_HAMMER_CHARGES, availableCharges);
-                PlayerPrefs.Save();
-            }
+            SaveCharges();
+            UpdateChargesUI();
+        }
+
+        public void SetCharges(int count)
+        {
+            availableCharges = Mathf.Max(0, count);
+            SaveCharges();
+            UpdateChargesUI();
+        }
+
+        public void RefreshFromSaveData()
+        {
+            InitOrLoadCharges();
             UpdateChargesUI();
         }
 
         public void ResetChargesToDefault()
         {
             availableCharges = defaultInitialCharges;
-            if (saveChargesAcrossLevels)
-            {
-                PlayerPrefs.SetInt(PREFS_HAMMER_CHARGES, availableCharges);
-                PlayerPrefs.Save();
-            }
+            SaveCharges();
             UpdateChargesUI();
         }
     }

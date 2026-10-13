@@ -32,6 +32,11 @@ namespace LegoPuzzle.Data
         [Tooltip("Чи обов'язково вивести цей блок для перемоги")]
         public bool isRequiredForWin = true;
 
+        [Tooltip("Початковий лічильник заморозки (0 = розморожений блок, >0 = заморожений блок, не може рухатись поки не знищено вказану кількість інших блоків)")]
+        public int freezeCount = 0;
+
+        public bool IsFrozen => freezeCount > 0;
+
         /// <summary>
         /// Повертає список абсолютних координат сітки, які займає цей блок
         /// </summary>

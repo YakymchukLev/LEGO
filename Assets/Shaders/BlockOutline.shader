@@ -17,6 +17,7 @@ Shader "Custom/BlockOutline"
         Pass
         {
             Name "Outline"
+            Tags { "LightMode" = "UniversalForward" }
             Cull Front
             ZWrite Off
             ZTest LEqual
@@ -64,6 +65,106 @@ Shader "Custom/BlockOutline"
             }
             ENDHLSL
         }
+
+        Pass
+        {
+            Name "OutlineForwardOnly"
+            Tags { "LightMode" = "UniversalForwardOnly" }
+            Cull Front
+            ZWrite Off
+            ZTest LEqual
+            Blend SrcAlpha OneMinusSrcAlpha
+
+            HLSLPROGRAM
+            #pragma vertex vert
+            #pragma fragment frag
+            #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
+
+            struct Attributes
+            {
+                float4 positionOS : POSITION;
+                float3 normalOS   : NORMAL;
+                float4 tangentOS  : TANGENT;
+            };
+
+            struct Varyings
+            {
+                float4 positionCS : SV_POSITION;
+            };
+
+            CBUFFER_START(UnityPerMaterial)
+                float4 _OutlineColor;
+                float _OutlineWidth;
+            CBUFFER_END
+
+            Varyings vert(Attributes input)
+            {
+                Varyings output;
+                float3 norm = length(input.tangentOS.xyz) > 0.1 ? input.tangentOS.xyz : input.normalOS;
+                if (dot(norm, norm) < 0.001) norm = input.normalOS;
+                norm = normalize(norm);
+
+                float3 extrudedPosOS = input.positionOS.xyz + norm * _OutlineWidth;
+                output.positionCS = TransformObjectToHClip(extrudedPosOS);
+                return output;
+            }
+
+            half4 frag(Varyings input) : SV_Target
+            {
+                return _OutlineColor;
+            }
+            ENDHLSL
+        }
+
+        Pass
+        {
+            Name "OutlineSRPDefaultUnlit"
+            Tags { "LightMode" = "SRPDefaultUnlit" }
+            Cull Front
+            ZWrite Off
+            ZTest LEqual
+            Blend SrcAlpha OneMinusSrcAlpha
+
+            HLSLPROGRAM
+            #pragma vertex vert
+            #pragma fragment frag
+            #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
+
+            struct Attributes
+            {
+                float4 positionOS : POSITION;
+                float3 normalOS   : NORMAL;
+                float4 tangentOS  : TANGENT;
+            };
+
+            struct Varyings
+            {
+                float4 positionCS : SV_POSITION;
+            };
+
+            CBUFFER_START(UnityPerMaterial)
+                float4 _OutlineColor;
+                float _OutlineWidth;
+            CBUFFER_END
+
+            Varyings vert(Attributes input)
+            {
+                Varyings output;
+                float3 norm = length(input.tangentOS.xyz) > 0.1 ? input.tangentOS.xyz : input.normalOS;
+                if (dot(norm, norm) < 0.001) norm = input.normalOS;
+                norm = normalize(norm);
+
+                float3 extrudedPosOS = input.positionOS.xyz + norm * _OutlineWidth;
+                output.positionCS = TransformObjectToHClip(extrudedPosOS);
+                return output;
+            }
+
+            half4 frag(Varyings input) : SV_Target
+            {
+                return _OutlineColor;
+            }
+            ENDHLSL
+        }
     }
     
     SubShader
@@ -71,6 +172,7 @@ Shader "Custom/BlockOutline"
         Tags { "RenderType"="Transparent" "Queue"="Transparent+50" }
         Pass
         {
+            Tags { "LightMode" = "ForwardBase" }
             Cull Front
             ZWrite Off
             ZTest LEqual
@@ -116,3 +218,4 @@ Shader "Custom/BlockOutline"
         }
     }
 }
+

@@ -1146,8 +1146,11 @@ namespace LegoPuzzle.Runtime
 
         public static TMP_FontAsset GetGameFontAsset()
         {
+            TMP_FontAsset font = Resources.Load<TMP_FontAsset>("Fonts/rimouski sb SDF");
+            if (font != null) return font;
+
 #if UNITY_EDITOR
-            TMP_FontAsset font = UnityEditor.AssetDatabase.LoadAssetAtPath<TMP_FontAsset>("Assets/Fonts/rimouski sb SDF.asset");
+            font = UnityEditor.AssetDatabase.LoadAssetAtPath<TMP_FontAsset>("Assets/Fonts/rimouski sb SDF.asset");
             if (font != null) return font;
 #endif
             var fonts = Resources.FindObjectsOfTypeAll<TMP_FontAsset>();

@@ -63,7 +63,40 @@ namespace LegoPuzzle.Editor
                 UnityEditor.SceneManagement.EditorSceneManager.MarkSceneDirty(activeScene);
             }
 
+            SetupBoosterBadges();
+
             EditorUtility.SetDirty(canvas.gameObject);
+        }
+
+        [MenuItem("LEGO/Setup Booster Balance Badges in Scene")]
+        public static void SetupBoosterBadges()
+        {
+            var freeze = Object.FindAnyObjectByType<TimeFreezeBooster>(FindObjectsInactive.Include);
+            if (freeze != null)
+            {
+                freeze.EnsureChargesBadge();
+                EditorUtility.SetDirty(freeze.gameObject);
+            }
+
+            var hint = Object.FindAnyObjectByType<HintBooster>(FindObjectsInactive.Include);
+            if (hint != null)
+            {
+                hint.EnsureChargesBadge();
+                EditorUtility.SetDirty(hint.gameObject);
+            }
+
+            var hammer = Object.FindAnyObjectByType<HammerBooster>(FindObjectsInactive.Include);
+            if (hammer != null)
+            {
+                hammer.EnsureChargesBadge();
+                EditorUtility.SetDirty(hammer.gameObject);
+            }
+
+            var activeScene = UnityEngine.SceneManagement.SceneManager.GetActiveScene();
+            if (activeScene != null && activeScene.isLoaded)
+            {
+                UnityEditor.SceneManagement.EditorSceneManager.MarkSceneDirty(activeScene);
+            }
         }
     }
 }

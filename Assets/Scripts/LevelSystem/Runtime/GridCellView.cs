@@ -338,24 +338,9 @@ namespace LegoPuzzle.Runtime
                 (CellType == CellType.ExitGate || CellType == CellType.HalfExitGate))
             {
                 float t = (Time.time + pulseOffset) * 2.8f;
-                // Комбінація 3: ритмічне дихання масштабу
-                float scalePulse = 1f + Mathf.Sin(t) * 0.08f;
+                float scalePulse = 1f + Mathf.Sin(t) * 0.035f;
                 arrowTransform.localScale = baseArrowLocalScale * scalePulse;
-
-                // Комбінація 4: магнітне втягування (імпульс зміщення стрілки у напрямку виходу)
-                float pullSin = Mathf.Max(0f, Mathf.Sin(t * 1.3f));
-                float pullDist = pullSin * (cachedCellSize * 0.08f);
-
-                Vector3 dirLocalOffset = ExitDirection switch
-                {
-                    ExitDirection.Up => Vector3.forward * pullDist,
-                    ExitDirection.Down => Vector3.back * pullDist,
-                    ExitDirection.Left => Vector3.left * pullDist,
-                    ExitDirection.Right => Vector3.right * pullDist,
-                    _ => Vector3.zero
-                };
-
-                arrowTransform.localPosition = baseArrowLocalPos + dirLocalOffset;
+                arrowTransform.localPosition = baseArrowLocalPos;
             }
         }
 
@@ -393,9 +378,7 @@ namespace LegoPuzzle.Runtime
             {
                 arrowRenderer.gameObject.SetActive(true);
 
-                Sprite spriteToUse = (palette != null && palette.exitGateArrowSprite != null)
-                    ? palette.exitGateArrowSprite
-                    : GetOrCreateProceduralArrowSprite();
+                Sprite spriteToUse = GetOrCreateProceduralArrowSprite();
 
                 arrowRenderer.sprite = spriteToUse;
                 arrowRenderer.color = Color.white;
@@ -444,7 +427,7 @@ namespace LegoPuzzle.Runtime
                 arrowTransform.localPosition = baseArrowLocalPos;
 
                 // Adaptive scale: compensations for non-uniform parent scale
-                float targetSize = (CellType == CellType.HalfExitGate) ? (cellSize * 0.32f) : (cellSize * 0.52f);
+                float targetSize = (CellType == CellType.HalfExitGate) ? (cellSize * 0.30f) : (cellSize * 0.50f);
                 Vector3 pScale = transform.localScale;
                 float absSx = Mathf.Max(Mathf.Abs(pScale.x), 0.001f);
                 float absSz = Mathf.Max(Mathf.Abs(pScale.z), 0.001f);
@@ -633,7 +616,7 @@ namespace LegoPuzzle.Runtime
         }
 
         /// <summary>
-        /// Generates a procedural high-res anti-aliased bold arrow sprite with high-contrast outline.
+        /// Generates a procedural high-res anti-aliased solid white triangle gate exit arrow matching the UI style.
         /// </summary>
         public static Sprite GetOrCreateProceduralArrowSprite()
         {
@@ -641,46 +624,51 @@ namespace LegoPuzzle.Runtime
 
             const int size = 128;
             Texture2D tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
-            tex.name = "Procedural_GateExitArrow";
+            tex.name = "Procedural_GateExitTriangle";
             tex.filterMode = FilterMode.Bilinear;
             tex.wrapMode = TextureWrapMode.Clamp;
 
             Color[] pixels = new Color[size * size];
             Vector2 center = new Vector2((size - 1) * 0.5f, (size - 1) * 0.5f);
 
-            // Generate crisp, anti-aliased, bold arrow pointing UP (+Y)
+            // Triangle vertices in normalized coordinates [-1, 1]:
+            // Apex: (0, 0.46) pointing UP (+Y)
+            // Base corners: (-0.48, -0.40) to (0.48, -0.40)
+            Vector2 tip = new Vector2(0f, 0.46f);
+            Vector2 baseCorner = new Vector2(0.48f, -0.40f);
+
             for (int y = 0; y < size; y++)
             {
                 for (int x = 0; x < size; x++)
                 {
-                    // Normalized coordinates [-1, 1]
                     float nx = (x - center.x) / (size * 0.5f);
                     float ny = (y - center.y) / (size * 0.5f);
 
                     Vector2 p = new Vector2(Mathf.Abs(nx), ny);
 
-                    // Head: segment from tip (0, 0.60) to barb (0.54, 0.05) with thickness 0.16
-                    float distHead = DistanceToSegment(p, new Vector2(0f, 0.60f), new Vector2(0.54f, 0.05f)) - 0.16f;
+                    // Slant edge from baseCorner to tip
+                    float dSlant = DistanceToSegment(p, baseCorner, tip);
+                    // Bottom edge from (0, -0.40) to (0.48, -0.40)
+                    float dBottom = DistanceToSegment(p, new Vector2(0f, -0.40f), baseCorner);
 
-                    // Stem: segment from bottom (0, -0.60) to join (0, 0.22) with thickness 0.14
-                    float distStem = DistanceToSegment(p, new Vector2(0f, -0.60f), new Vector2(0f, 0.22f)) - 0.14f;
+                    float dist = Mathf.Min(dSlant, dBottom);
 
-                    float d = Mathf.Min(distHead, distStem);
+                    // Point is inside triangle:
+                    bool inside = (ny >= -0.40f && p.x <= 0.48f * (0.46f - ny) / (0.46f - (-0.40f)));
+                    float sd = inside ? -dist : dist;
 
-                    // Anti-aliasing thresholds (sub-pixel transitions)
-                    float fillAlpha = Mathf.Clamp01(0.5f - d / 0.045f);
-                    float outlineAlpha = Mathf.Clamp01(0.5f - (d - 0.065f) / 0.045f);
+                    float aaWidth = 0.024f;
+                    float fillAlpha = Mathf.Clamp01(0.5f - sd / aaWidth);
+                    float outlineAlpha = Mathf.Clamp01(0.5f - (sd - 0.045f) / aaWidth);
 
                     Color col = Color.clear;
                     if (fillAlpha > 0.005f)
                     {
-                        // Clean solid white fill with smooth alpha edge
                         col = new Color(1f, 1f, 1f, fillAlpha);
                     }
                     else if (outlineAlpha > 0.005f)
                     {
-                        // Subtle dark shadow outline (ensures visibility on light-colored gates)
-                        col = new Color(0.05f, 0.05f, 0.05f, outlineAlpha * 0.65f);
+                        col = new Color(0.06f, 0.06f, 0.08f, outlineAlpha * 0.45f);
                     }
 
                     pixels[y * size + x] = col;

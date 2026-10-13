@@ -80,6 +80,7 @@ namespace LegoPuzzle.Runtime
                 UIButtonPressEffect.AttachTo(gameObject);
             }
 
+            EnsureChargesBadge();
             InitOrLoadCharges();
         }
 
@@ -87,17 +88,23 @@ namespace LegoPuzzle.Runtime
         {
             if (!saveChargesAcrossLevels) return;
 
-            if (PlayerPrefs.HasKey(PREFS_BOOSTER_CHARGES))
+            if (SaveDataService.Instance != null && SaveDataService.Instance.Data != null)
             {
-                availableCharges = PlayerPrefs.GetInt(PREFS_BOOSTER_CHARGES);
+                availableCharges = SaveDataService.Instance.Data.freezeCharges;
             }
             else
             {
-                int initial = availableCharges >= 0 ? availableCharges : defaultInitialCharges;
-                if (initial < 0) initial = 0;
-                PlayerPrefs.SetInt(PREFS_BOOSTER_CHARGES, initial);
-                PlayerPrefs.Save();
-                availableCharges = initial;
+                availableCharges = availableCharges >= 0 ? availableCharges : defaultInitialCharges;
+            }
+        }
+
+        private void SaveCharges()
+        {
+            if (!saveChargesAcrossLevels) return;
+            if (SaveDataService.Instance != null && SaveDataService.Instance.Data != null)
+            {
+                SaveDataService.Instance.Data.freezeCharges = availableCharges;
+                SaveDataService.Instance.Save();
             }
         }
 
@@ -105,11 +112,7 @@ namespace LegoPuzzle.Runtime
         public void SetChargesToZero()
         {
             availableCharges = 0;
-            if (saveChargesAcrossLevels)
-            {
-                PlayerPrefs.SetInt(PREFS_BOOSTER_CHARGES, 0);
-                PlayerPrefs.Save();
-            }
+            SaveCharges();
             UpdateChargesUI();
             Debug.Log("<color=yellow>Freeze: Charges set to 0. Next click opens shop panel!</color>");
         }
@@ -118,11 +121,7 @@ namespace LegoPuzzle.Runtime
         public void SetChargesToThree()
         {
             availableCharges = 3;
-            if (saveChargesAcrossLevels)
-            {
-                PlayerPrefs.SetInt(PREFS_BOOSTER_CHARGES, 3);
-                PlayerPrefs.Save();
-            }
+            SaveCharges();
             UpdateChargesUI();
         }
 
@@ -250,11 +249,7 @@ namespace LegoPuzzle.Runtime
             if (availableCharges > 0)
             {
                 availableCharges--;
-                if (saveChargesAcrossLevels)
-                {
-                    PlayerPrefs.SetInt(PREFS_BOOSTER_CHARGES, availableCharges);
-                    PlayerPrefs.Save();
-                }
+                SaveCharges();
                 UpdateChargesUI();
             }
 
@@ -265,34 +260,33 @@ namespace LegoPuzzle.Runtime
         {
             if (availableCharges == -1) return; // Нескінченно
             availableCharges = Mathf.Max(0, availableCharges + count);
-            if (saveChargesAcrossLevels)
-            {
-                PlayerPrefs.SetInt(PREFS_BOOSTER_CHARGES, availableCharges);
-                PlayerPrefs.Save();
-            }
+            SaveCharges();
             UpdateChargesUI();
         }
 
         public void SetCharges(int count)
         {
             availableCharges = Mathf.Max(0, count);
-            if (saveChargesAcrossLevels)
-            {
-                PlayerPrefs.SetInt(PREFS_BOOSTER_CHARGES, availableCharges);
-                PlayerPrefs.Save();
-            }
+            SaveCharges();
             UpdateChargesUI();
         }
 
         public static int GetGlobalCharges(int fallback = 3)
         {
-            return PlayerPrefs.GetInt(PREFS_BOOSTER_CHARGES, fallback);
+            if (SaveDataService.Instance != null && SaveDataService.Instance.Data != null)
+            {
+                return SaveDataService.Instance.Data.freezeCharges;
+            }
+            return fallback;
         }
 
         public static void SetGlobalCharges(int count)
         {
-            PlayerPrefs.SetInt(PREFS_BOOSTER_CHARGES, Mathf.Max(0, count));
-            PlayerPrefs.Save();
+            if (SaveDataService.Instance != null && SaveDataService.Instance.Data != null)
+            {
+                SaveDataService.Instance.Data.freezeCharges = Mathf.Max(0, count);
+                SaveDataService.Instance.Save();
+            }
         }
 
         public static void AddGlobalCharges(int delta)
@@ -326,27 +320,33 @@ namespace LegoPuzzle.Runtime
             }
         }
 
-        private void UpdateChargesUI()
+        public void EnsureChargesBadge()
         {
-            if (availableCharges < 0)
+            if (chargesTMPText == null && chargesLegacyText == null)
             {
-                // Нескінченна кількість — ховаємо лічильник
-                if (chargesTMPText != null) chargesTMPText.gameObject.SetActive(false);
-                if (chargesLegacyText != null) chargesLegacyText.gameObject.SetActive(false);
+                chargesTMPText = BoosterBadgeUI.EnsureBadge(transform, chargesTMPText, chargesPrefix);
             }
-            else
+        }
+
+        public void RefreshFromSaveData()
+        {
+            InitOrLoadCharges();
+            UpdateChargesUI();
+        }
+
+        public void UpdateChargesUI()
+        {
+            EnsureChargesBadge();
+
+            if (chargesTMPText != null)
             {
-                string textStr = $"{chargesPrefix}{availableCharges}";
-                if (chargesTMPText != null)
-                {
-                    chargesTMPText.gameObject.SetActive(true);
-                    chargesTMPText.text = textStr;
-                }
-                if (chargesLegacyText != null)
-                {
-                    chargesLegacyText.gameObject.SetActive(true);
-                    chargesLegacyText.text = textStr;
-                }
+                BoosterBadgeUI.UpdateBadge(chargesTMPText, availableCharges, chargesPrefix);
+            }
+
+            if (chargesLegacyText != null)
+            {
+                chargesLegacyText.gameObject.SetActive(availableCharges >= 0);
+                chargesLegacyText.text = (availableCharges < 0) ? "∞" : $"{chargesPrefix}{availableCharges}";
             }
         }
     }

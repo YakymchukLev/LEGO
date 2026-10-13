@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
@@ -47,11 +48,20 @@ namespace LegoPuzzle.Runtime
 
         private void Awake()
         {
+            if (Application.isPlaying)
+            {
+                if (Instance != null && Instance != this)
+                {
+                    Destroy(this);
+                    return;
+                }
+            }
             Instance = this;
         }
 
         private void OnEnable()
         {
+            if (Application.isPlaying && Instance != null && Instance != this) return;
             Instance = this;
             EnsureGemManager();
             EnsureUIHierarchy();
@@ -61,6 +71,7 @@ namespace LegoPuzzle.Runtime
 
         private void Start()
         {
+            if (Application.isPlaying && Instance != null && Instance != this) return;
             EnsureGemManager();
             EnsureUIHierarchy();
             BindEvents();
@@ -140,6 +151,14 @@ namespace LegoPuzzle.Runtime
             if (GemManager.HasInstance)
             {
                 balance = GemManager.Instance.Gems;
+            }
+            else if (SaveDataService.HasInstance && SaveDataService.Instance.Data != null)
+            {
+                balance = SaveDataService.Instance.Data.gems;
+            }
+            else if (Application.isPlaying && SaveDataService.Instance != null && SaveDataService.Instance.Data != null)
+            {
+                balance = SaveDataService.Instance.Data.gems;
             }
             else
             {
@@ -222,24 +241,173 @@ namespace LegoPuzzle.Runtime
             bounceCoroutine = null;
         }
 
+        private Canvas FindMainCanvas()
+        {
+            Canvas canvas = GetComponentInParent<Canvas>();
+            if (canvas != null && !canvas.name.Contains("Dev")) return canvas;
+
+            Canvas[] allCanvases = FindObjectsByType<Canvas>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            foreach (var c in allCanvases)
+            {
+                if (c == null) continue;
+                if (c.name.Contains("Dev")) continue;
+                if (c.transform.Find("DownPanel") != null ||
+                    c.transform.Find("GemsWidget") != null ||
+                    c.transform.Find("CoinsWidget") != null ||
+                    c.transform.Find("SettingsButton") != null)
+                {
+                    return c;
+                }
+            }
+
+            foreach (var c in allCanvases)
+            {
+                if (c != null && !c.name.Contains("Dev") && c.name == "Canvas")
+                    return c;
+            }
+
+            foreach (var c in allCanvases)
+            {
+                if (c != null && !c.name.Contains("Dev"))
+                    return c;
+            }
+
+            return null;
+        }
+
+        private void CleanupAndResolveGemsWidget(Canvas canvas)
+        {
+            // 1. Find all RectTransforms named "GemsWidget" in the scene
+            var allWidgets = FindObjectsByType<RectTransform>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            var gemWidgets = new List<RectTransform>();
+            foreach (var rt in allWidgets)
+            {
+                if (rt != null && rt.name == "GemsWidget")
+                {
+                    gemWidgets.Add(rt);
+                }
+            }
+
+            if (gemWidgets.Count > 0)
+            {
+                RectTransform best = widgetContainer;
+                if (best == null || !gemWidgets.Contains(best))
+                {
+                    foreach (var gw in gemWidgets)
+                    {
+                        if (gw.transform.parent == canvas.transform)
+                        {
+                            best = gw;
+                            break;
+                        }
+                    }
+                    if (best == null) best = gemWidgets[0];
+                }
+
+                widgetContainer = best;
+
+                // Destroy duplicate GemsWidgets
+                for (int i = 0; i < gemWidgets.Count; i++)
+                {
+                    var gw = gemWidgets[i];
+                    if (gw != null && gw != best)
+                    {
+                        if (Application.isPlaying) Destroy(gw.gameObject);
+                        else DestroyImmediate(gw.gameObject);
+                    }
+                }
+            }
+
+            // 2. Remove any rogue coin items or duplicate coin widgets accidentally attached to GemsWidget
+            if (widgetContainer != null)
+            {
+                Transform rogueCoin = widgetContainer.Find("CoinIcon");
+                if (rogueCoin != null)
+                {
+                    if (Application.isPlaying) Destroy(rogueCoin.gameObject);
+                    else DestroyImmediate(rogueCoin.gameObject);
+                }
+
+                Transform rogueCoinText = widgetContainer.Find("CoinsCountText");
+                if (rogueCoinText != null)
+                {
+                    if (Application.isPlaying) Destroy(rogueCoinText.gameObject);
+                    else DestroyImmediate(rogueCoinText.gameObject);
+                }
+
+                Transform rogueCoinWidget = widgetContainer.Find("CoinsWidget");
+                if (rogueCoinWidget != null)
+                {
+                    if (Application.isPlaying) Destroy(rogueCoinWidget.gameObject);
+                    else DestroyImmediate(rogueCoinWidget.gameObject);
+                }
+            }
+        }
+
+        private void CreateGemsWidget(Canvas canvas)
+        {
+            GameObject widgetObj = new GameObject("GemsWidget");
+            widgetObj.transform.SetParent(canvas.transform, false);
+            widgetContainer = widgetObj.AddComponent<RectTransform>();
+
+            // Anchor Top-Right (positioned cleanly next to SettingsButton: -185.8f, -70f)
+            widgetContainer.anchorMin = new Vector2(1f, 1f);
+            widgetContainer.anchorMax = new Vector2(1f, 1f);
+            widgetContainer.pivot = new Vector2(1f, 1f);
+            widgetContainer.anchoredPosition = new Vector2(-185.8f, -70f);
+            widgetContainer.sizeDelta = new Vector2(200f, 70f);
+
+            // Gem Icon (64x64)
+            GameObject iconObj = new GameObject("GemIcon");
+            iconObj.transform.SetParent(widgetContainer, false);
+            RectTransform iconRt = iconObj.AddComponent<RectTransform>();
+            iconRt.anchorMin = new Vector2(0f, 0.5f);
+            iconRt.anchorMax = new Vector2(0f, 0.5f);
+            iconRt.pivot = new Vector2(0.5f, 0.5f);
+            iconRt.anchoredPosition = new Vector2(32f, 0f);
+            iconRt.sizeDelta = new Vector2(64f, 64f);
+
+            gemIconImage = iconObj.AddComponent<Image>();
+            gemIconImage.sprite = GetGemSprite();
+            gemIconImage.preserveAspect = true;
+            gemIconImage.raycastTarget = false;
+
+            // Gem Count Text (Bold 52pt)
+            GameObject countObj = new GameObject("GemsCountText");
+            countObj.transform.SetParent(widgetContainer, false);
+            RectTransform countRt = countObj.AddComponent<RectTransform>();
+            countRt.anchorMin = new Vector2(0f, 0.5f);
+            countRt.anchorMax = new Vector2(1f, 0.5f);
+            countRt.pivot = new Vector2(0f, 0.5f);
+            countRt.anchoredPosition = new Vector2(80f, 0f);
+            countRt.sizeDelta = new Vector2(120f, 64f);
+
+            gemsCountTMP = countObj.AddComponent<TextMeshProUGUI>();
+            TMP_FontAsset font = GetDefaultTMPFont();
+            if (font != null) gemsCountTMP.font = font;
+            gemsCountTMP.fontSize = 52f;
+            gemsCountTMP.fontStyle = FontStyles.Bold;
+            gemsCountTMP.alignment = TextAlignmentOptions.MidlineLeft;
+            gemsCountTMP.color = textColor;
+            gemsCountTMP.text = "0";
+            gemsCountTMP.raycastTarget = false;
+
+            EnsureButtonListener();
+        }
+
         /// <summary>
         /// Links existing hierarchy elements if present on scene, or builds horizontal row [Gem] [Count] at Top Right.
         /// </summary>
         public void EnsureUIHierarchy()
         {
-            Canvas canvas = GetComponentInParent<Canvas>();
-            if (canvas == null) canvas = FindAnyObjectByType<Canvas>();
+            Canvas canvas = FindMainCanvas();
             if (canvas == null) return;
 
-            // 1. Look for pre-existing GemsWidget in scene
-            if (widgetContainer == null)
-            {
-                Transform existing = canvas.transform.Find("GemsWidget");
-                if (existing != null)
-                {
-                    widgetContainer = existing.GetComponent<RectTransform>();
-                }
-            }
+            // Do not setup GemsWidget on DevPanel or secondary canvases
+            if (canvas.name.Contains("Dev") || gameObject.name.Contains("Dev")) return;
+
+            // Clean up duplicates and rogue coin children
+            CleanupAndResolveGemsWidget(canvas);
 
             if (widgetContainer != null)
             {
@@ -268,54 +436,7 @@ namespace LegoPuzzle.Runtime
                 return;
             }
 
-            // 2. If completely missing in scene, create horizontal row: [GemIcon] [GemsCountText]
-            GameObject widgetObj = new GameObject("GemsWidget");
-            widgetObj.transform.SetParent(canvas.transform, false);
-            widgetContainer = widgetObj.AddComponent<RectTransform>();
-
-            // Anchor Top-Right (positioned cleanly next to CoinsWidget and SettingsButton)
-            widgetContainer.anchorMin = new Vector2(1f, 1f);
-            widgetContainer.anchorMax = new Vector2(1f, 1f);
-            widgetContainer.pivot = new Vector2(1f, 1f);
-            widgetContainer.anchoredPosition = new Vector2(-170f, -70f);
-            widgetContainer.sizeDelta = new Vector2(200f, 70f);
-
-            // Gem Icon (64x64)
-            GameObject iconObj = new GameObject("GemIcon");
-            iconObj.transform.SetParent(widgetContainer, false);
-            RectTransform iconRt = iconObj.AddComponent<RectTransform>();
-            iconRt.anchorMin = new Vector2(0f, 0.5f);
-            iconRt.anchorMax = new Vector2(0f, 0.5f);
-            iconRt.pivot = new Vector2(0.5f, 0.5f);
-            iconRt.anchoredPosition = new Vector2(32f, 0f);
-            iconRt.sizeDelta = new Vector2(64f, 64f);
-
-            gemIconImage = iconObj.AddComponent<Image>();
-            gemIconImage.sprite = GetGemSprite();
-            gemIconImage.preserveAspect = true;
-            gemIconImage.raycastTarget = false;
-
-            // Gem Count Text (Bold 52pt)
-            GameObject countObj = new GameObject("GemsCountText");
-            countObj.transform.SetParent(widgetContainer, false);
-            RectTransform countRt = countObj.AddComponent<RectTransform>();
-            countRt.anchorMin = new Vector2(0f, 0.5f);
-            countRt.anchorMax = new Vector2(0f, 0.5f);
-            countRt.pivot = new Vector2(0f, 0.5f);
-            countRt.anchoredPosition = new Vector2(80f, 0f);
-            countRt.sizeDelta = new Vector2(120f, 64f);
-
-            gemsCountTMP = countObj.AddComponent<TextMeshProUGUI>();
-            TMP_FontAsset font = GetDefaultTMPFont();
-            if (font != null) gemsCountTMP.font = font;
-            gemsCountTMP.fontSize = 52f;
-            gemsCountTMP.fontStyle = FontStyles.Bold;
-            gemsCountTMP.alignment = TextAlignmentOptions.MidlineLeft;
-            gemsCountTMP.color = textColor;
-            gemsCountTMP.text = "0";
-            gemsCountTMP.raycastTarget = false;
-
-            EnsureButtonListener();
+            CreateGemsWidget(canvas);
         }
 
         private void EnsureButtonListener()
@@ -417,28 +538,6 @@ namespace LegoPuzzle.Runtime
             }
         }
 
-        [UnityEditor.MenuItem("LEGO/Setup Menu Gems UI")]
-        public static void SetupMenuGemsUIEditor()
-        {
-            Canvas canvas = UnityEngine.Object.FindAnyObjectByType<Canvas>();
-            if (canvas == null)
-            {
-                Debug.LogWarning("No Canvas found in current scene.");
-                return;
-            }
-
-            MenuGemsUI gemsUI = canvas.GetComponent<MenuGemsUI>();
-            if (gemsUI == null)
-            {
-                gemsUI = canvas.gameObject.AddComponent<MenuGemsUI>();
-            }
-
-            gemsUI.EnsureGemManager();
-            gemsUI.EnsureUIHierarchy();
-            gemsUI.UpdateUI(false);
-            UnityEditor.EditorUtility.SetDirty(canvas.gameObject);
-            Debug.Log("<color=#D946EF><b>MenuGemsUI:</b> Gems widget successfully configured on Canvas!</color>");
-        }
 #endif
     }
 }

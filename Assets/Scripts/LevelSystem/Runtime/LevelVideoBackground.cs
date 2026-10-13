@@ -325,20 +325,27 @@ namespace LegoPuzzle.Runtime
             if (targetCamera == null) return;
 
             Vector3 camPos = targetCamera.transform.position;
-            float quadY = GetBackgroundPlaneY();
+            float aspect = (targetCamera.aspect > 0.01f) ? targetCamera.aspect : ((float)Screen.width / Mathf.Max(1, Screen.height));
 
             float visibleHeight;
             float visibleWidth;
-            float aspect = (targetCamera.aspect > 0.01f) ? targetCamera.aspect : ((float)Screen.width / Mathf.Max(1, Screen.height));
+            float dist;
 
             if (targetCamera.orthographic)
             {
+                dist = Mathf.Max(5f, depthBelowBoard + 15f);
                 visibleHeight = targetCamera.orthographicSize * 2f;
                 visibleWidth = visibleHeight * aspect;
             }
             else
             {
-                float dist = Mathf.Max(0.1f, camPos.y - quadY);
+                float boardY = (levelLoader != null) ? levelLoader.BoardBaseY : transform.position.y;
+                float heightToBoard = Mathf.Max(0.5f, camPos.y - boardY);
+                // Проектуємо відстань вздовж напрямку огляду камери
+                float cosAngle = Mathf.Max(0.1f, Vector3.Dot(-targetCamera.transform.forward, Vector3.down));
+                dist = (heightToBoard + Mathf.Abs(depthBelowBoard)) / cosAngle;
+                dist = Mathf.Clamp(dist, 5f, 150f);
+
                 float fovRad = targetCamera.fieldOfView * Mathf.Deg2Rad;
                 visibleHeight = 2f * dist * Mathf.Tan(fovRad * 0.5f);
                 visibleWidth = visibleHeight * aspect;
@@ -391,8 +398,8 @@ namespace LegoPuzzle.Runtime
             quadWidth *= paddingMultiplier;
             quadHeight *= paddingMultiplier;
 
-            quadObject.transform.position = new Vector3(camPos.x, quadY, camPos.z);
-            quadObject.transform.rotation = Quaternion.Euler(90f, 0f, 0f);
+            quadObject.transform.position = camPos + targetCamera.transform.forward * dist;
+            quadObject.transform.rotation = targetCamera.transform.rotation;
             quadObject.transform.localScale = new Vector3(quadWidth, quadHeight, 1f);
         }
 

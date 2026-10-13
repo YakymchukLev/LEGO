@@ -167,30 +167,48 @@ namespace LegoPuzzle.Runtime
 
             if (buttonClickSound == null || buttonClickSound.name != "Button_Click")
             {
+                AudioClip clickClip = Resources.Load<AudioClip>("Sound/Button_Click");
 #if UNITY_EDITOR
-                AudioClip clickClip = UnityEditor.AssetDatabase.LoadAssetAtPath<AudioClip>("Assets/Sound/Button_Click.wav");
+                if (clickClip == null)
+                {
+                    clickClip = UnityEditor.AssetDatabase.LoadAssetAtPath<AudioClip>("Assets/Sound/Button_Click.wav");
+                }
+#endif
                 if (clickClip != null)
                 {
                     buttonClickSound = clickClip;
                 }
                 else if (buttonClickSound == null)
                 {
-                    buttonClickSound = UnityEditor.AssetDatabase.LoadAssetAtPath<AudioClip>("Assets/Sound/610524__pietheanimator45__clicking-lego-brick.wav");
-                }
+                    buttonClickSound = Resources.Load<AudioClip>("Sound/610524__pietheanimator45__clicking-lego-brick");
+#if UNITY_EDITOR
+                    if (buttonClickSound == null)
+                    {
+                        buttonClickSound = UnityEditor.AssetDatabase.LoadAssetAtPath<AudioClip>("Assets/Sound/610524__pietheanimator45__clicking-lego-brick.wav");
+                    }
 #endif
+                }
             }
 
             if (menuMusicClip == null)
             {
+                menuMusicClip = Resources.Load<AudioClip>("Sound/main-menu");
 #if UNITY_EDITOR
-                menuMusicClip = UnityEditor.AssetDatabase.LoadAssetAtPath<AudioClip>("Assets/Sound/main-menu.wav");
+                if (menuMusicClip == null)
+                {
+                    menuMusicClip = UnityEditor.AssetDatabase.LoadAssetAtPath<AudioClip>("Assets/Sound/main-menu.wav");
+                }
 #endif
             }
 
             if (gameMusicClip == null)
             {
+                gameMusicClip = Resources.Load<AudioClip>("Sound/lvlsound");
 #if UNITY_EDITOR
-                gameMusicClip = UnityEditor.AssetDatabase.LoadAssetAtPath<AudioClip>("Assets/Sound/lvlsound.mp3");
+                if (gameMusicClip == null)
+                {
+                    gameMusicClip = UnityEditor.AssetDatabase.LoadAssetAtPath<AudioClip>("Assets/Sound/lvlsound.mp3");
+                }
 #endif
             }
         }
@@ -344,35 +362,61 @@ namespace LegoPuzzle.Runtime
         }
 
         /// <summary>
-        /// Loads all saved settings from PlayerPrefs. Defaults to enabled (true).
+        /// Loads all saved settings from SaveDataService. Defaults to enabled (true).
         /// </summary>
         public void LoadSettings()
         {
-            SoundEnabled = PlayerPrefs.GetInt(PREFS_SOUND_ENABLED, 1) == 1;
-            MusicEnabled = PlayerPrefs.GetInt(PREFS_MUSIC_ENABLED, 1) == 1;
-            VibrationEnabled = PlayerPrefs.GetInt(PREFS_VIBRATION_ENABLED, 1) == 1;
-            NotificationsEnabled = PlayerPrefs.GetInt(PREFS_NOTIFICATIONS_ENABLED, 1) == 1;
-            ColorblindModeEnabled = PlayerPrefs.GetInt(PREFS_COLORBLIND_ENABLED, 0) == 1;
-            SoundVolume = PlayerPrefs.GetFloat(PREFS_SOUND_VOLUME, 1f);
-            MusicVolume = PlayerPrefs.GetFloat(PREFS_MUSIC_VOLUME, 1f);
+            if (SaveDataService.Instance != null && SaveDataService.Instance.Data != null)
+            {
+                var s = SaveDataService.Instance.Data.settings;
+                if (s != null)
+                {
+                    SoundEnabled = s.soundEnabled;
+                    MusicEnabled = s.musicEnabled;
+                    VibrationEnabled = s.vibrationEnabled;
+                    NotificationsEnabled = s.notificationsEnabled;
+                    ColorblindModeEnabled = s.colorblindModeEnabled;
+                    SoundVolume = s.soundVolume;
+                    MusicVolume = s.musicVolume;
+                }
+            }
+            else
+            {
+                SoundEnabled = true;
+                MusicEnabled = true;
+                VibrationEnabled = true;
+                NotificationsEnabled = true;
+                ColorblindModeEnabled = false;
+                SoundVolume = 1f;
+                MusicVolume = 1f;
+            }
 
             ApplySettings();
             OnSettingsChanged?.Invoke();
         }
 
         /// <summary>
-        /// Saves all settings to PlayerPrefs.
+        /// Saves all settings to SaveDataService.
         /// </summary>
         public void SaveSettings()
         {
-            PlayerPrefs.SetInt(PREFS_SOUND_ENABLED, SoundEnabled ? 1 : 0);
-            PlayerPrefs.SetInt(PREFS_MUSIC_ENABLED, MusicEnabled ? 1 : 0);
-            PlayerPrefs.SetInt(PREFS_VIBRATION_ENABLED, VibrationEnabled ? 1 : 0);
-            PlayerPrefs.SetInt(PREFS_NOTIFICATIONS_ENABLED, NotificationsEnabled ? 1 : 0);
-            PlayerPrefs.SetInt(PREFS_COLORBLIND_ENABLED, ColorblindModeEnabled ? 1 : 0);
-            PlayerPrefs.SetFloat(PREFS_SOUND_VOLUME, SoundVolume);
-            PlayerPrefs.SetFloat(PREFS_MUSIC_VOLUME, MusicVolume);
-            PlayerPrefs.Save();
+            if (SaveDataService.Instance != null && SaveDataService.Instance.Data != null)
+            {
+                if (SaveDataService.Instance.Data.settings == null)
+                {
+                    SaveDataService.Instance.Data.settings = new SettingsSaveData();
+                }
+
+                var s = SaveDataService.Instance.Data.settings;
+                s.soundEnabled = SoundEnabled;
+                s.musicEnabled = MusicEnabled;
+                s.vibrationEnabled = VibrationEnabled;
+                s.notificationsEnabled = NotificationsEnabled;
+                s.colorblindModeEnabled = ColorblindModeEnabled;
+                s.soundVolume = SoundVolume;
+                s.musicVolume = MusicVolume;
+                SaveDataService.Instance.Save();
+            }
         }
 
         public void SetSoundEnabled(bool enabled)
@@ -694,6 +738,11 @@ namespace LegoPuzzle.Runtime
         /// </summary>
         public void ResetLevelProgress()
         {
+            if (SaveDataService.Instance != null && SaveDataService.Instance.Data != null)
+            {
+                SaveDataService.Instance.Data.currentLevelIndex = 0;
+                SaveDataService.Instance.Save();
+            }
             PlayerPrefs.DeleteKey(PREFS_LEVEL_INDEX);
             PlayerPrefs.Save();
             Debug.Log("<color=yellow><b>[GameSettingsManager]</b> Level progress reset to Level 1!</color>");
