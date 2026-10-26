@@ -146,7 +146,8 @@ namespace LegoPuzzle.Editor
             GUIStyle style = GetStyle(textCol, fontSize);
 
             string freezeInfo = piece.freezeCount > 0 ? $"\n❄ Лічильник заморозки: {piece.freezeCount}" : "";
-            string tooltip = $"🧩 Деталь: {piece.pieceId}\nКолір: {piece.colorType}\nРух: {piece.moveRestriction}{freezeInfo}\nКлітинка: ({x}, {y})";
+            string flipInfo = piece.flipHorizontal ? "\nДзеркало X: так" : "";
+            string tooltip = $"🧩 Деталь: {piece.pieceId}\nКолір: {piece.colorType}\nРух: {piece.moveRestriction}{freezeInfo}{flipInfo}\nКлітинка: ({x}, {y})";
             GUI.Label(innerRect, new GUIContent(glyph, tooltip), style);
         }
 

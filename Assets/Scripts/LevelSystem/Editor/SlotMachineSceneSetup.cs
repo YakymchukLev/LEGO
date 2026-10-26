@@ -26,7 +26,7 @@ namespace LegoPuzzle.Editor
         {
             if (EditorApplication.isPlayingOrWillChangePlaymode || Application.isPlaying)
             {
-                Debug.LogWarning("[SlotMachineSceneSetup] Не можна змінювати сцену під час Play Mode.");
+                Debug.LogWarning("[SlotMachineSceneSetup] Cannot edit the scene during Play Mode.");
                 return;
             }
             EnsureSlotMachineInScene(true);

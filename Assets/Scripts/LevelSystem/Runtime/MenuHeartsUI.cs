@@ -222,7 +222,13 @@ namespace LegoPuzzle.Runtime
         {
             if (widgetContainer == null) yield break;
 
+            if (MenuBalanceSlideIn.IsWidgetAnimating(widgetContainer)) yield break;
+
             Vector2 originalPos = widgetContainer.anchoredPosition;
+            if (MenuBalanceSlideIn.TryGetRestPosition(widgetContainer, out Vector2 restPos))
+            {
+                originalPos = restPos;
+            }
             float elapsed = 0f;
             float duration = 0.45f;
             float intensity = 20f;
@@ -373,6 +379,7 @@ namespace LegoPuzzle.Runtime
                     heartIconImage.sprite = GetHeartSprite();
                 }
                 EnsureButtonListener();
+                EnsureIntroSlide();
                 return;
             }
 
@@ -437,6 +444,13 @@ namespace LegoPuzzle.Runtime
             timerText.text = "FULL";
 
             EnsureButtonListener();
+            EnsureIntroSlide();
+        }
+
+        private void EnsureIntroSlide()
+        {
+            if (!Application.isPlaying || widgetContainer == null) return;
+            MenuBalanceSlideIn.AttachTo(widgetContainer.gameObject, 0.16f);
         }
 
         private void EnsureButtonListener()

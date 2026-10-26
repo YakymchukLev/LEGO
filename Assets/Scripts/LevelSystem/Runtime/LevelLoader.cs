@@ -1846,7 +1846,15 @@ namespace LegoPuzzle.Runtime
 
         private void EnsureAllLevelsPopulated()
         {
-            if (allLevels != null && allLevels.Count > 0 && !allLevels.Exists(l => l == null))
+            if (allLevels == null)
+            {
+                allLevels = new List<LevelData>();
+            }
+
+            allLevels.RemoveAll(level => level == null);
+            AppendMissingResourceLevels();
+
+            if (allLevels.Count > 0)
             {
                 return;
             }
@@ -1877,6 +1885,44 @@ namespace LegoPuzzle.Runtime
                 allLevels = list;
             }
 #endif
+        }
+
+        /// <summary>
+        /// Рівні з Resources/Levels, яких ще немає в списку сцени, додаються в кінець.
+        /// Копії з тим самим levelIndex не дублюються.
+        /// </summary>
+        private void AppendMissingResourceLevels()
+        {
+            LevelData[] loadedLevels = Resources.LoadAll<LevelData>("Levels");
+            if (loadedLevels == null || loadedLevels.Length == 0)
+            {
+                return;
+            }
+
+            var knownIndexes = new HashSet<int>();
+            for (int i = 0; i < allLevels.Count; i++)
+            {
+                if (allLevels[i] != null)
+                {
+                    knownIndexes.Add(allLevels[i].levelIndex);
+                }
+            }
+
+            var extras = new List<LevelData>();
+            for (int i = 0; i < loadedLevels.Length; i++)
+            {
+                LevelData level = loadedLevels[i];
+                if (level == null || allLevels.Contains(level) || knownIndexes.Contains(level.levelIndex))
+                {
+                    continue;
+                }
+
+                extras.Add(level);
+                knownIndexes.Add(level.levelIndex);
+            }
+
+            extras.Sort((a, b) => a.levelIndex.CompareTo(b.levelIndex));
+            allLevels.AddRange(extras);
         }
 
         private TMP_FontAsset GetGameFontAsset()

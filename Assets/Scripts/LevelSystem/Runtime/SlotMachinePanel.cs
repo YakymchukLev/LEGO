@@ -18,12 +18,12 @@ namespace LegoPuzzle.Runtime
     {
         public static SlotMachinePanel Instance { get; private set; }
 
-        [Header("Швидке завантаження спрайтів (Drop Sprites Here)")]
-        [Tooltip("Закиньте сюди всі ваші спрайти (Sprite[] / List<Sprite>). Вони автоматично розподіляться у всі 3 колонки слотів!")]
+        [Header("Quick Sprite Load (Drop Sprites Here)")]
+        [Tooltip("Drop your sprites here (Sprite[] / List<Sprite>). They are split across all 3 slot columns.")]
         [SerializeField] private List<Sprite> customSprites = new List<Sprite>();
 
-        [Header("Детальне налаштування предметів (Advanced Slot Items)")]
-        [Tooltip("Список предметів/символів, що з'являються на барабанах")]
+        [Header("Advanced Slot Items")]
+        [Tooltip("Symbols that appear on the reels")]
         [SerializeField] private List<SlotItemData> slotItems = new List<SlotItemData>();
 
         [Header("Spin Economics & Rules")]
@@ -53,21 +53,21 @@ namespace LegoPuzzle.Runtime
         [Tooltip("Additional delay before reel 3 stops (dramatic suspense)")]
         [SerializeField] private float reel3ExtraDelay = 0.60f;
 
-        [Header("Фонове відео (Background Video)")]
-        [Tooltip("Відеокліп для фону грального автомата (LottoVideo.mp4)")]
+        [Header("Background Video")]
+        [Tooltip("Background clip for the slot machine (LottoVideo.mp4)")]
         [SerializeField] private VideoClip backgroundVideoClip;
 
-        [Tooltip("Вимикати звук у фоновому відео")]
+        [Tooltip("Mute the background video")]
         [SerializeField] private bool muteVideoAudio = true;
 
-        [Tooltip("Гучність відео якщо звук увімкнено")]
+        [Tooltip("Video volume when sound is enabled")]
         [SerializeField] private float videoAudioVolume = 0f;
 
-        [Header("Текстури слотів (Slot Machine Textures)")]
-        [Tooltip("Спрайт грального автомата (Arcade Cabinet)")]
+        [Header("Slot Machine Textures")]
+        [Tooltip("Arcade cabinet sprite")]
         [SerializeField] private Sprite cabinetSprite;
 
-        [Tooltip("Спрайт кнопки спіну (Spin Button)")]
+        [Tooltip("Spin button sprite")]
         [SerializeField] private Sprite spinButtonSprite;
 
         [Header("UI Element References")]
@@ -244,7 +244,7 @@ namespace LegoPuzzle.Runtime
             UpdateBalanceDisplay();
             UpdateSpinButtonText();
             InitReelsWithRandomSymbols();
-            SetStatusText("КРУТИ ТА ВИГРАВАЙ!", Color.white);
+            SetStatusText("SPIN AND WIN!", Color.white);
 
             wasTimePaused = Time.timeScale < 0.01f;
             if (!wasTimePaused)
@@ -350,7 +350,7 @@ namespace LegoPuzzle.Runtime
             if (isSpinning) return;
             if (slotItems == null || slotItems.Count == 0)
             {
-                SetStatusText("Немає налаштованих предметів!", Color.red);
+                SetStatusText("NO ITEMS CONFIGURED!", Color.red);
                 return;
             }
 
@@ -361,7 +361,7 @@ namespace LegoPuzzle.Runtime
                 int currentCoins = CoinManager.HasInstance ? CoinManager.Instance.Coins : 0;
                 if (currentCoins < spinCoinCost)
                 {
-                    SetStatusText("Недостатньо монет для спіну!", new Color(1f, 0.35f, 0.35f));
+                    SetStatusText("NOT ENOUGH COINS TO SPIN!", new Color(1f, 0.35f, 0.35f));
                     if (GameSettingsManager.HasInstance) GameSettingsManager.Instance.TriggerHaptic();
                     ShakeButton(spinButton.GetComponent<RectTransform>());
                     return;
@@ -390,7 +390,7 @@ namespace LegoPuzzle.Runtime
         {
             isSpinning = true;
             spinButton.interactable = false;
-            SetStatusText("КРУТЯТЬСЯ СЛОТИ...", new Color(1f, 0.85f, 0.2f));
+            SetStatusText("SPINNING...", new Color(1f, 0.85f, 0.2f));
 
             PlayAudio(spinStartSound != null ? spinStartSound : GameSettingsManager.Instance?.ButtonClickSound, 0.85f);
             if (GameSettingsManager.HasInstance) GameSettingsManager.Instance.TriggerHapticMove();
@@ -448,7 +448,7 @@ namespace LegoPuzzle.Runtime
                 int totalPrize = item1.rewardAmount * jackpotMultiplier;
                 GrantReward(item1.rewardType, totalPrize);
 
-                SetStatusText($"ДЖЕКПОТ! 3x {item1.displayName.ToUpper()}! (+{totalPrize})", new Color(1f, 0.9f, 0.1f));
+                SetStatusText($"JACKPOT! 3x {item1.displayName.ToUpper()}! (+{totalPrize})", new Color(1f, 0.9f, 0.1f));
                 PlayAudio(jackpotSound != null ? jackpotSound : winSound, 1f);
 
                 if (confettiEffect != null) confettiEffect.Play();
@@ -463,7 +463,7 @@ namespace LegoPuzzle.Runtime
                 int totalPrize = winningItem.rewardAmount;
                 GrantReward(winningItem.rewardType, totalPrize);
 
-                SetStatusText($"ВИГРАШ! 2x {winningItem.displayName}! (+{totalPrize})", new Color(0.3f, 1f, 0.5f));
+                SetStatusText($"WIN! 2x {winningItem.displayName}! (+{totalPrize})", new Color(0.3f, 1f, 0.5f));
                 PlayAudio(winSound, 0.9f);
 
                 if (confettiEffect != null) confettiEffect.Play();
@@ -474,7 +474,7 @@ namespace LegoPuzzle.Runtime
             // 3. No match
             else
             {
-                SetStatusText("МАЙЖЕ! СПРОБУЙТЕ ЩЕ РАЗ!", new Color(0.85f, 0.85f, 0.9f));
+                SetStatusText("SO CLOSE! TRY AGAIN!", new Color(0.85f, 0.85f, 0.9f));
                 if (GameSettingsManager.HasInstance) GameSettingsManager.Instance.TriggerHapticMove();
             }
 
@@ -577,11 +577,11 @@ namespace LegoPuzzle.Runtime
             string costStr = "";
             if (freeSpinsOnly)
             {
-                costStr = "БЕЗКОШТОВНО";
+                costStr = "FREE";
             }
             else if (remainingFreeSpins > 0)
             {
-                costStr = $"БЕЗКОШТОВНО ({remainingFreeSpins})";
+                costStr = $"FREE ({remainingFreeSpins})";
             }
             else
             {
@@ -898,7 +898,7 @@ namespace LegoPuzzle.Runtime
         }
 #endif
 
-        [ContextMenu("Оновити слоти з масиву спрайтів (Sync Custom Sprites)")]
+        [ContextMenu("Sync Custom Sprites")]
         public void RefreshFromCustomSprites()
         {
             SyncSpritesToSlotItems();
@@ -1211,7 +1211,7 @@ namespace LegoPuzzle.Runtime
                 slotItems.Add(new SlotItemData
                 {
                     id = "Coins",
-                    displayName = "100 Монет",
+                    displayName = "100 Coins",
                     icon = coinSprite != null ? coinSprite : fallback,
                     rewardType = SlotRewardType.Coins,
                     rewardAmount = 100,
@@ -1222,7 +1222,7 @@ namespace LegoPuzzle.Runtime
                 slotItems.Add(new SlotItemData
                 {
                     id = "Gems",
-                    displayName = "20 Алмазів",
+                    displayName = "20 Gems",
                     icon = gemSprite != null ? gemSprite : fallback,
                     rewardType = SlotRewardType.Gems,
                     rewardAmount = 20,
@@ -1233,7 +1233,7 @@ namespace LegoPuzzle.Runtime
                 slotItems.Add(new SlotItemData
                 {
                     id = "Hearts",
-                    displayName = "1 Життя",
+                    displayName = "1 Life",
                     icon = heartSprite != null ? heartSprite : fallback,
                     rewardType = SlotRewardType.Hearts,
                     rewardAmount = 1,
@@ -1244,7 +1244,7 @@ namespace LegoPuzzle.Runtime
                 slotItems.Add(new SlotItemData
                 {
                     id = "Hammer",
-                    displayName = "1 Молоток",
+                    displayName = "1 Hammer",
                     icon = hammerSprite != null ? hammerSprite : fallback,
                     rewardType = SlotRewardType.HammerBooster,
                     rewardAmount = 1,
@@ -1255,7 +1255,7 @@ namespace LegoPuzzle.Runtime
                 slotItems.Add(new SlotItemData
                 {
                     id = "Freeze",
-                    displayName = "1 Заморозка",
+                    displayName = "1 Freeze",
                     icon = freezeSprite != null ? freezeSprite : fallback,
                     rewardType = SlotRewardType.FreezeBooster,
                     rewardAmount = 1,
@@ -1266,7 +1266,7 @@ namespace LegoPuzzle.Runtime
                 slotItems.Add(new SlotItemData
                 {
                     id = "Hint",
-                    displayName = "1 Підказка",
+                    displayName = "1 Hint",
                     icon = hintSprite != null ? hintSprite : fallback,
                     rewardType = SlotRewardType.HintBooster,
                     rewardAmount = 1,
@@ -1487,7 +1487,7 @@ namespace LegoPuzzle.Runtime
 
             statusTMP = statusObj.GetComponent<TextMeshProUGUI>();
             if (statusTMP == null) statusTMP = statusObj.AddComponent<TextMeshProUGUI>();
-            statusTMP.text = "КРУТИ ТА ВИГРАВАЙ!";
+            statusTMP.text = "SPIN AND WIN!";
             statusTMP.fontSize = 18f;
             statusTMP.fontStyle = FontStyles.Bold;
             statusTMP.alignment = TextAlignmentOptions.Center;

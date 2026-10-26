@@ -1,6 +1,5 @@
 #if UNITY_EDITOR
 using System.Collections.Generic;
-using System.IO;
 using UnityEditor;
 using UnityEngine;
 using LegoPuzzle.Data;
@@ -30,11 +29,14 @@ namespace LegoPuzzle.Editor
         private BlockColorType pieceColorType = BlockColorType.Red;
         private MoveRestriction pieceRestriction = MoveRestriction.Free;
         private int pieceRotation = 0;
+        private bool pieceFlipHorizontal = false;
         private int pieceFreezeCount = 0;
 
         // Виділена деталь для редагування
         private LegoPieceData selectedPiece = null;
         private bool showPiecesListFoldout = false;
+
+        private const string LevelsFolder = "Assets/Resources/Levels";
 
         private Vector2 scrollPos;
         private float previewCellSize = LevelGridRenderer.DEFAULT_CELL_SIZE;
@@ -95,13 +97,13 @@ namespace LegoPuzzle.Editor
                 EditorGUILayout.BeginHorizontal();
 
                 GUI.backgroundColor = new Color(0.4f, 0.8f, 1f);
-                if (GUILayout.Button("▶ Тестувати цей рівень у грі", GUILayout.Height(24)))
+                if (GUILayout.Button("Тестувати цей рівень у грі", GUILayout.Height(24)))
                 {
                     TestCurrentLevelInGame();
                 }
 
                 GUI.backgroundColor = new Color(1f, 0.85f, 0.4f);
-                if (GUILayout.Button("🔄 Скинути прогрес (на Рівень 1)", GUILayout.Height(24)))
+                if (GUILayout.Button("Скинути прогрес (на Рівень 1)", GUILayout.Height(24)))
                 {
                     if (Runtime.SaveDataService.Instance != null && Runtime.SaveDataService.Instance.Data != null)
                     {
@@ -197,10 +199,10 @@ namespace LegoPuzzle.Editor
 
                     string[] halfOptions = new string[]
                     {
-                        "Нижня половина (Horizontal Bottom  ▄) — для нижньої стіни",
-                        "Верхня половина (Horizontal Top  ▀) — для верхньої стіни",
-                        "Ліва половина (Vertical Left  ▌) — для лівої стіни",
-                        "Права половина (Vertical Right  ▐) — для правої стіни"
+                        "Нижня половина (Horizontal Bottom  ▄) — для верхньої стіни",
+                        "Верхня половина (Horizontal Top  ▀) — для нижньої стіни",
+                        "Ліва половина (Vertical Left  ▌) — для правої стіни",
+                        "Права половина (Vertical Right  ▐) — для лівої стіни"
                     };
 
                     int currentIdx = brushGateAlignment switch
@@ -230,10 +232,10 @@ namespace LegoPuzzle.Editor
                 {
                     string[] cornerOptions = new string[]
                     {
-                        "Вгору-Вліво (Top-Left)  ▘",
-                        "Вгору-Вправо (Top-Right)  ▝",
-                        "Вниз-Вліво (Bottom-Left)  ▖",
-                        "Вниз-Вправо (Bottom-Right)  ▗"
+                        "Низ-Право (Top-Left)  ▘",
+                        "Низ-Ліво (Top-Right)  ▝",
+                        "Верх-Право (Bottom-Left)  ▖",
+                        "Верх-Ліво (Bottom-Right)  ▗"
                     };
                     int currentCornerIndex = brushExitDir switch
                     {
@@ -263,6 +265,7 @@ namespace LegoPuzzle.Editor
                 pieceColorType = (BlockColorType)EditorGUILayout.EnumPopup("Колір деталі", pieceColorType);
                 pieceRestriction = (MoveRestriction)EditorGUILayout.EnumPopup("Обмеження руху", pieceRestriction);
                 pieceRotation = EditorGUILayout.IntSlider($"Поворот ({pieceRotation * 90}°)", pieceRotation, 0, 3);
+                pieceFlipHorizontal = EditorGUILayout.Toggle("Дзеркало по X (Flip X)", pieceFlipHorizontal);
 
                 EditorGUILayout.Space(4);
                 EditorGUILayout.BeginHorizontal();
@@ -294,6 +297,7 @@ namespace LegoPuzzle.Editor
                     selectedPiece.colorType = (BlockColorType)EditorGUILayout.EnumPopup("Колір деталі", selectedPiece.colorType);
                     selectedPiece.moveRestriction = (MoveRestriction)EditorGUILayout.EnumPopup("Обмеження руху", selectedPiece.moveRestriction);
                     selectedPiece.rotationSteps = EditorGUILayout.IntSlider($"Поворот ({selectedPiece.rotationSteps * 90}°)", selectedPiece.rotationSteps, 0, 3);
+                    selectedPiece.flipHorizontal = EditorGUILayout.Toggle("Дзеркало по X (Flip X)", selectedPiece.flipHorizontal);
 
                     EditorGUILayout.Space(4);
                     EditorGUILayout.BeginHorizontal();
@@ -564,6 +568,7 @@ namespace LegoPuzzle.Editor
                         shape = selectedShape,
                         originPosition = new Vector2Int(x, y),
                         rotationSteps = pieceRotation,
+                        flipHorizontal = pieceFlipHorizontal,
                         colorType = pieceColorType,
                         moveRestriction = pieceRestriction,
                         freezeCount = pieceFreezeCount
@@ -635,7 +640,13 @@ namespace LegoPuzzle.Editor
 
                     if (saveAsNew)
                     {
-                        string newPath = $"Assets/Levels/{expectedName3}.asset";
+                        EnsureLevelsFolderExists();
+                        string newPath = $"{LevelsFolder}/{expectedName3}.asset";
+                        if (AssetDatabase.LoadAssetAtPath<LevelData>(newPath) != null)
+                        {
+                            newPath = AssetDatabase.GenerateUniqueAssetPath(newPath);
+                        }
+
                         LevelData copy = Instantiate(targetLevel);
                         copy.levelIndex = targetLevel.levelIndex;
                         copy.levelTitle = string.IsNullOrEmpty(targetLevel.levelTitle) ? $"Level {targetLevel.levelIndex}" : targetLevel.levelTitle;
@@ -656,14 +667,14 @@ namespace LegoPuzzle.Editor
 
         private void CreateNewLevelAsset()
         {
-            string folderPath = "Assets/Levels";
-            if (!Directory.Exists(folderPath))
-            {
-                Directory.CreateDirectory(folderPath);
-            }
+            EnsureLevelsFolderExists();
 
-            int count = Directory.GetFiles(folderPath, "Level_*.asset").Length + 1;
-            string assetPath = $"{folderPath}/Level_{count:D3}.asset";
+            int count = GetNextLevelNumber();
+            string assetPath = $"{LevelsFolder}/Level_{count:D3}.asset";
+            if (AssetDatabase.LoadAssetAtPath<LevelData>(assetPath) != null)
+            {
+                assetPath = AssetDatabase.GenerateUniqueAssetPath(assetPath);
+            }
 
             LevelData newLevel = ScriptableObject.CreateInstance<LevelData>();
             newLevel.levelIndex = count;
@@ -676,6 +687,36 @@ namespace LegoPuzzle.Editor
             targetLevel = newLevel;
             Selection.activeObject = newLevel;
             Debug.Log($"Створено новий рівень: {assetPath}");
+        }
+
+        private static void EnsureLevelsFolderExists()
+        {
+            if (!AssetDatabase.IsValidFolder("Assets/Resources"))
+            {
+                AssetDatabase.CreateFolder("Assets", "Resources");
+            }
+
+            if (!AssetDatabase.IsValidFolder(LevelsFolder))
+            {
+                AssetDatabase.CreateFolder("Assets/Resources", "Levels");
+            }
+        }
+
+        private static int GetNextLevelNumber()
+        {
+            int max = 0;
+            string[] guids = AssetDatabase.FindAssets("t:LevelData");
+            for (int i = 0; i < guids.Length; i++)
+            {
+                string path = AssetDatabase.GUIDToAssetPath(guids[i]);
+                LevelData level = AssetDatabase.LoadAssetAtPath<LevelData>(path);
+                if (level != null && level.levelIndex > max)
+                {
+                    max = level.levelIndex;
+                }
+            }
+
+            return max + 1;
         }
     }
 }

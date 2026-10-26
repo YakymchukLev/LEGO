@@ -44,6 +44,14 @@ namespace LegoPuzzle.Runtime
         public int lottoDailyFreeSpins = 3;
         public string lottoLastSpinDate = "";
 
+        // Дошка лото. Раунд триває до місцевої опівночі на пристрої.
+        public string lottoRoundLocalDate;
+        public bool lottoUsesShortTimer;
+        public long lottoRoundEndsUtcTicks;
+        public int[] lottoHeaderNumbers;
+        public int[] lottoSlotNumbers;
+        public bool[] lottoSlotsOpen;
+
         // Налаштування гри
         public SettingsSaveData settings = new SettingsSaveData();
 

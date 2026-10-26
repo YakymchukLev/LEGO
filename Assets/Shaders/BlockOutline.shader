@@ -18,7 +18,7 @@ Shader "Custom/BlockOutline"
         {
             Name "Outline"
             Tags { "LightMode" = "UniversalForward" }
-            Cull Front
+            Cull Off
             ZWrite Off
             ZTest LEqual
             Blend SrcAlpha OneMinusSrcAlpha
@@ -38,6 +38,8 @@ Shader "Custom/BlockOutline"
             struct Varyings
             {
                 float4 positionCS : SV_POSITION;
+                float3 normalWS   : TEXCOORD0;
+                float3 viewDirWS  : TEXCOORD1;
             };
 
             CBUFFER_START(UnityPerMaterial)
@@ -45,22 +47,34 @@ Shader "Custom/BlockOutline"
                 float _OutlineWidth;
             CBUFFER_END
 
+            float3 OutlineNormal(float3 normalOS, float4 tangentOS)
+            {
+                float3 norm = length(tangentOS.xyz) > 0.1 ? tangentOS.xyz : normalOS;
+                if (dot(norm, norm) < 0.001) norm = normalOS;
+                return normalize(norm);
+            }
+
             Varyings vert(Attributes input)
             {
                 Varyings output;
-                
-                // Use smoothed normal if baked in tangentOS, otherwise use vertex normal
-                float3 norm = length(input.tangentOS.xyz) > 0.1 ? input.tangentOS.xyz : input.normalOS;
-                if (dot(norm, norm) < 0.001) norm = input.normalOS;
-                norm = normalize(norm);
-
+                float3 norm = OutlineNormal(input.normalOS, input.tangentOS);
                 float3 extrudedPosOS = input.positionOS.xyz + norm * _OutlineWidth;
-                output.positionCS = TransformObjectToHClip(extrudedPosOS);
+                float3 positionWS = TransformObjectToWorld(extrudedPosOS);
+
+                output.positionCS = TransformWorldToHClip(positionWS);
+                output.normalWS = TransformObjectToWorldNormal(norm);
+                output.viewDirWS = GetWorldSpaceViewDir(positionWS);
                 return output;
             }
 
             half4 frag(Varyings input) : SV_Target
             {
+                // Грані, розвернуті до камери, закривають блок білим. Лишаємо лише край силуету.
+                // Світова норма враховує від’ємний масштаб, тож дзеркало не ламає перевірку.
+                float facing = dot(normalize(input.normalWS), normalize(input.viewDirWS));
+                if (facing > 0.05)
+                    discard;
+
                 return _OutlineColor;
             }
             ENDHLSL
@@ -70,7 +84,7 @@ Shader "Custom/BlockOutline"
         {
             Name "OutlineForwardOnly"
             Tags { "LightMode" = "UniversalForwardOnly" }
-            Cull Front
+            Cull Off
             ZWrite Off
             ZTest LEqual
             Blend SrcAlpha OneMinusSrcAlpha
@@ -90,6 +104,8 @@ Shader "Custom/BlockOutline"
             struct Varyings
             {
                 float4 positionCS : SV_POSITION;
+                float3 normalWS   : TEXCOORD0;
+                float3 viewDirWS  : TEXCOORD1;
             };
 
             CBUFFER_START(UnityPerMaterial)
@@ -97,20 +113,32 @@ Shader "Custom/BlockOutline"
                 float _OutlineWidth;
             CBUFFER_END
 
+            float3 OutlineNormal(float3 normalOS, float4 tangentOS)
+            {
+                float3 norm = length(tangentOS.xyz) > 0.1 ? tangentOS.xyz : normalOS;
+                if (dot(norm, norm) < 0.001) norm = normalOS;
+                return normalize(norm);
+            }
+
             Varyings vert(Attributes input)
             {
                 Varyings output;
-                float3 norm = length(input.tangentOS.xyz) > 0.1 ? input.tangentOS.xyz : input.normalOS;
-                if (dot(norm, norm) < 0.001) norm = input.normalOS;
-                norm = normalize(norm);
-
+                float3 norm = OutlineNormal(input.normalOS, input.tangentOS);
                 float3 extrudedPosOS = input.positionOS.xyz + norm * _OutlineWidth;
-                output.positionCS = TransformObjectToHClip(extrudedPosOS);
+                float3 positionWS = TransformObjectToWorld(extrudedPosOS);
+
+                output.positionCS = TransformWorldToHClip(positionWS);
+                output.normalWS = TransformObjectToWorldNormal(norm);
+                output.viewDirWS = GetWorldSpaceViewDir(positionWS);
                 return output;
             }
 
             half4 frag(Varyings input) : SV_Target
             {
+                float facing = dot(normalize(input.normalWS), normalize(input.viewDirWS));
+                if (facing > 0.05)
+                    discard;
+
                 return _OutlineColor;
             }
             ENDHLSL
@@ -120,7 +148,7 @@ Shader "Custom/BlockOutline"
         {
             Name "OutlineSRPDefaultUnlit"
             Tags { "LightMode" = "SRPDefaultUnlit" }
-            Cull Front
+            Cull Off
             ZWrite Off
             ZTest LEqual
             Blend SrcAlpha OneMinusSrcAlpha
@@ -140,6 +168,8 @@ Shader "Custom/BlockOutline"
             struct Varyings
             {
                 float4 positionCS : SV_POSITION;
+                float3 normalWS   : TEXCOORD0;
+                float3 viewDirWS  : TEXCOORD1;
             };
 
             CBUFFER_START(UnityPerMaterial)
@@ -147,20 +177,32 @@ Shader "Custom/BlockOutline"
                 float _OutlineWidth;
             CBUFFER_END
 
+            float3 OutlineNormal(float3 normalOS, float4 tangentOS)
+            {
+                float3 norm = length(tangentOS.xyz) > 0.1 ? tangentOS.xyz : normalOS;
+                if (dot(norm, norm) < 0.001) norm = normalOS;
+                return normalize(norm);
+            }
+
             Varyings vert(Attributes input)
             {
                 Varyings output;
-                float3 norm = length(input.tangentOS.xyz) > 0.1 ? input.tangentOS.xyz : input.normalOS;
-                if (dot(norm, norm) < 0.001) norm = input.normalOS;
-                norm = normalize(norm);
-
+                float3 norm = OutlineNormal(input.normalOS, input.tangentOS);
                 float3 extrudedPosOS = input.positionOS.xyz + norm * _OutlineWidth;
-                output.positionCS = TransformObjectToHClip(extrudedPosOS);
+                float3 positionWS = TransformObjectToWorld(extrudedPosOS);
+
+                output.positionCS = TransformWorldToHClip(positionWS);
+                output.normalWS = TransformObjectToWorldNormal(norm);
+                output.viewDirWS = GetWorldSpaceViewDir(positionWS);
                 return output;
             }
 
             half4 frag(Varyings input) : SV_Target
             {
+                float facing = dot(normalize(input.normalWS), normalize(input.viewDirWS));
+                if (facing > 0.05)
+                    discard;
+
                 return _OutlineColor;
             }
             ENDHLSL
@@ -173,7 +215,7 @@ Shader "Custom/BlockOutline"
         Pass
         {
             Tags { "LightMode" = "ForwardBase" }
-            Cull Front
+            Cull Off
             ZWrite Off
             ZTest LEqual
             Blend SrcAlpha OneMinusSrcAlpha
@@ -193,6 +235,8 @@ Shader "Custom/BlockOutline"
             struct v2f
             {
                 float4 pos : SV_POSITION;
+                float3 normalWS : TEXCOORD0;
+                float3 viewDirWS : TEXCOORD1;
             };
 
             float4 _OutlineColor;
@@ -205,17 +249,23 @@ Shader "Custom/BlockOutline"
                 if (dot(norm, norm) < 0.001) norm = v.normal;
                 norm = normalize(norm);
 
-                float3 pos = v.vertex.xyz + norm * _OutlineWidth;
-                o.pos = UnityObjectToClipPos(pos);
+                float3 extruded = v.vertex.xyz + norm * _OutlineWidth;
+                float4 worldPos = mul(unity_ObjectToWorld, float4(extruded, 1.0));
+                o.pos = UnityObjectToClipPos(float4(extruded, 1.0));
+                o.normalWS = UnityObjectToWorldNormal(norm);
+                o.viewDirWS = _WorldSpaceCameraPos.xyz - worldPos.xyz;
                 return o;
             }
 
             fixed4 frag(v2f i) : SV_Target
             {
+                float facing = dot(normalize(i.normalWS), normalize(i.viewDirWS));
+                if (facing > 0.05)
+                    discard;
+
                 return _OutlineColor;
             }
             ENDCG
         }
     }
 }
-

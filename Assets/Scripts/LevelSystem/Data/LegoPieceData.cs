@@ -20,6 +20,9 @@ namespace LegoPuzzle.Data
         [Range(0, 3)]
         public int rotationSteps = 0;
 
+        [Tooltip("Горизонтальне дзеркало базової форми (для L дає J: поворот 0°, але навпаки)")]
+        public bool flipHorizontal = false;
+
         [Tooltip("Колір деталі")]
         public BlockColorType colorType = BlockColorType.Red;
 
@@ -49,13 +52,29 @@ namespace LegoPuzzle.Data
                 return occupied;
             }
 
-            var offsets = shape.GetRotatedOffsets(rotationSteps);
+            var offsets = GetOrientedOffsets();
             foreach (var offset in offsets)
             {
                 occupied.Add(originPosition + offset);
             }
 
             return occupied;
+        }
+
+        public List<Vector2Int> GetOrientedOffsets()
+        {
+            if (shape == null)
+            {
+                return new List<Vector2Int> { Vector2Int.zero };
+            }
+
+            return shape.GetRotatedOffsets(rotationSteps, flipHorizontal);
+        }
+
+        public Vector2Int GetOrientedBounds()
+        {
+            if (shape == null) return Vector2Int.one;
+            return shape.GetRotatedBounds(rotationSteps, flipHorizontal);
         }
 
         public Color GetColor()

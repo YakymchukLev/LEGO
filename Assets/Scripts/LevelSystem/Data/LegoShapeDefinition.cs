@@ -27,16 +27,26 @@ namespace LegoPuzzle.Data
 
         /// <summary>
         /// Повертає список зайнятих клітинок з урахуванням повороту (0 = 0°, 1 = 90°, 2 = 180°, 3 = 270° за годинниковою стрілкою)
+        /// та опційного горизонтального дзеркала базової форми (потрібно для L / J хіральності).
         /// </summary>
-        public List<Vector2Int> GetRotatedOffsets(int rotationSteps)
+        public List<Vector2Int> GetRotatedOffsets(int rotationSteps, bool flipHorizontal = false)
         {
             rotationSteps = (rotationSteps % 4 + 4) % 4;
+
+            List<Vector2Int> source = localOccupiedCells != null
+                ? new List<Vector2Int>(localOccupiedCells)
+                : new List<Vector2Int> { Vector2Int.zero };
+
+            if (flipHorizontal)
+            {
+                source = FlipHorizontal(source);
+            }
+
             if (rotationSteps == 0)
-                return new List<Vector2Int>(localOccupiedCells);
+                return NormalizeToOrigin(source);
 
-            List<Vector2Int> rotated = new List<Vector2Int>(localOccupiedCells.Count);
-
-            foreach (var cell in localOccupiedCells)
+            List<Vector2Int> rotated = new List<Vector2Int>(source.Count);
+            foreach (var cell in source)
             {
                 Vector2Int newCell = cell;
                 for (int i = 0; i < rotationSteps; i++)
@@ -47,26 +57,47 @@ namespace LegoPuzzle.Data
                 rotated.Add(newCell);
             }
 
-            // Нормалізуємо, щоб мінімальні координати починалися з (0, 0)
-            int minX = int.MaxValue;
-            int minY = int.MaxValue;
-            foreach (var cell in rotated)
-            {
-                if (cell.x < minX) minX = cell.x;
-                if (cell.y < minY) minY = cell.y;
-            }
-
-            for (int i = 0; i < rotated.Count; i++)
-            {
-                rotated[i] = new Vector2Int(rotated[i].x - minX, rotated[i].y - minY);
-            }
-
-            return rotated;
+            return NormalizeToOrigin(rotated);
         }
 
-        public Vector2Int GetRotatedBounds(int rotationSteps)
+        private static List<Vector2Int> FlipHorizontal(List<Vector2Int> cells)
         {
-            var offsets = GetRotatedOffsets(rotationSteps);
+            int maxX = 0;
+            for (int i = 0; i < cells.Count; i++)
+            {
+                if (cells[i].x > maxX) maxX = cells[i].x;
+            }
+
+            var flipped = new List<Vector2Int>(cells.Count);
+            for (int i = 0; i < cells.Count; i++)
+            {
+                flipped.Add(new Vector2Int(maxX - cells[i].x, cells[i].y));
+            }
+
+            return flipped;
+        }
+
+        private static List<Vector2Int> NormalizeToOrigin(List<Vector2Int> cells)
+        {
+            int minX = int.MaxValue;
+            int minY = int.MaxValue;
+            for (int i = 0; i < cells.Count; i++)
+            {
+                if (cells[i].x < minX) minX = cells[i].x;
+                if (cells[i].y < minY) minY = cells[i].y;
+            }
+
+            for (int i = 0; i < cells.Count; i++)
+            {
+                cells[i] = new Vector2Int(cells[i].x - minX, cells[i].y - minY);
+            }
+
+            return cells;
+        }
+
+        public Vector2Int GetRotatedBounds(int rotationSteps, bool flipHorizontal = false)
+        {
+            var offsets = GetRotatedOffsets(rotationSteps, flipHorizontal);
             int maxX = 0;
             int maxY = 0;
             foreach (var cell in offsets)

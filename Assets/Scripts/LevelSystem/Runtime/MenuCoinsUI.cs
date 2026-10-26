@@ -282,7 +282,7 @@ namespace LegoPuzzle.Runtime
             // 1. If widgetContainer is already assigned, ensure it is not overlapping GemsWidget
             if (widgetContainer != null && widgetContainer.gameObject != null)
             {
-                if (widgetContainer.anchoredPosition.x > -250f)
+                if (!Application.isPlaying && widgetContainer.anchoredPosition.x > -250f)
                 {
                     widgetContainer.anchoredPosition = new Vector2(-456.76f, -70f);
                 }
@@ -329,7 +329,7 @@ namespace LegoPuzzle.Runtime
                 }
 
                 widgetContainer = best;
-                if (widgetContainer.anchoredPosition.x > -250f)
+                if (!Application.isPlaying && widgetContainer.anchoredPosition.x > -250f)
                 {
                     widgetContainer.anchoredPosition = new Vector2(-456.76f, -70f);
                 }
@@ -480,10 +480,18 @@ namespace LegoPuzzle.Runtime
                     coinIconImage.sprite = GetCoinSprite();
                 }
                 EnsureButtonListener();
+                EnsureIntroSlide();
                 return;
             }
 
             CreateCoinsWidget(canvas);
+            EnsureIntroSlide();
+        }
+
+        private void EnsureIntroSlide()
+        {
+            if (!Application.isPlaying || widgetContainer == null) return;
+            MenuBalanceSlideIn.AttachTo(widgetContainer.gameObject, 0.08f);
         }
 
         private void EnsureButtonListener()

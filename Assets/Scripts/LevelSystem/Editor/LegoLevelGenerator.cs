@@ -586,7 +586,7 @@ namespace LegoPuzzle.Editor
                 {
                     var other = pieceList[pIdx];
                     if (other == ignore) continue;
-                    var otherOffsets = other.shape.GetRotatedOffsets(other.rotationSteps);
+                    var otherOffsets = other.GetOrientedOffsets();
                     for (int o = 0; o < otherOffsets.Count; o++)
                     {
                         if (c == other.originPosition + otherOffsets[o]) return false;
@@ -957,6 +957,7 @@ namespace LegoPuzzle.Editor
                 {
                     var shape = shapePool[rng.Next(shapePool.Count)];
                     int rot = rng.Next(4);
+                    var offsets = shape.GetRotatedOffsets(rot);
                     Vector2Int bounds = shape.GetRotatedBounds(rot);
 
                     List<ExitDirection> candidateSides = new List<ExitDirection>();
@@ -979,8 +980,11 @@ namespace LegoPuzzle.Editor
 
                     foreach (var side in candidateSides)
                     {
+                        if (!TryGetExitEdge(offsets, side, out int crossMin, out int edgeLen, out int edgeDepth))
+                            continue;
+
                         bool isHorizontalGate = (side == ExitDirection.Down || side == ExitDirection.Up);
-                        int gateLen = isHorizontalGate ? bounds.x : bounds.y;
+                        int gateLen = edgeLen;
                         int borderLength = isHorizontalGate ? W : H;
                         int maxStart = (borderLength - 1) - gateLen;
                         if (maxStart < 1) continue;
@@ -1033,10 +1037,10 @@ namespace LegoPuzzle.Editor
                         {
                             Vector2Int entranceOrigin = side switch
                             {
-                                ExitDirection.Down => new Vector2Int(g, 1),
-                                ExitDirection.Up => new Vector2Int(g, H - 1 - bounds.y),
-                                ExitDirection.Left => new Vector2Int(1, g),
-                                _ => new Vector2Int(W - 1 - bounds.x, g)
+                                ExitDirection.Down => new Vector2Int(g - crossMin, 1 - edgeDepth),
+                                ExitDirection.Up => new Vector2Int(g - crossMin, (H - 2) - edgeDepth),
+                                ExitDirection.Left => new Vector2Int(1 - edgeDepth, g - crossMin),
+                                _ => new Vector2Int((W - 2) - edgeDepth, g - crossMin)
                             };
 
                             if (CanFitAt(level, shape, rot, entranceOrigin, pieceList))
@@ -1433,7 +1437,7 @@ namespace LegoPuzzle.Editor
             return CountImmediateExits(level) == 0;
         }
 
-        private static bool CanPieceExitAnywhereImmediate(LevelData level, LegoPieceData piece, Vector2Int origin)
+        private static bool CanPieceExitAnywhereImmediate(LevelData level, LegoPieceData piece, Vector2Int origin, Vector2Int[] origins = null, bool[] exited = null)
         {
             Vector2Int[] dirs = new Vector2Int[] { Vector2Int.up, Vector2Int.down, Vector2Int.left, Vector2Int.right };
             foreach (var dir in dirs)
@@ -1443,7 +1447,7 @@ namespace LegoPuzzle.Editor
                 if (piece.moveRestriction == MoveRestriction.VerticalOnly && (dir == Vector2Int.left || dir == Vector2Int.right))
                     continue;
 
-                if (CanExitImmediately(level, piece, origin, dir))
+                if (CanExitImmediately(level, piece, origin, dir, origins, exited))
                     return true;
             }
             return false;
@@ -1466,13 +1470,13 @@ namespace LegoPuzzle.Editor
             return count;
         }
 
-        private static bool CanExitImmediately(LevelData level, LegoPieceData piece, Vector2Int origin, Vector2Int dir)
+        private static bool CanExitImmediately(LevelData level, LegoPieceData piece, Vector2Int origin, Vector2Int dir, Vector2Int[] origins = null, bool[] exited = null)
         {
             if (piece == null || piece.shape == null) return false;
 
             int W = level.gridWidth;
             int H = level.gridHeight;
-            var offsets = piece.shape.GetRotatedOffsets(piece.rotationSteps);
+            var offsets = piece.GetOrientedOffsets();
 
             ExitDirection expectedExitDir = (dir == Vector2Int.up) ? ExitDirection.Up
                 : (dir == Vector2Int.down) ? ExitDirection.Down
@@ -1485,33 +1489,38 @@ namespace LegoPuzzle.Editor
             for (int k = 0; k < offsets.Count; k++)
             {
                 Vector2Int cell = origin + offsets[k];
-                if (dir == Vector2Int.down)
+                bool towardMin = dir == Vector2Int.down || dir == Vector2Int.left;
+                int depth = (dir == Vector2Int.down || dir == Vector2Int.up) ? cell.y : cell.x;
+
+                if (towardMin)
                 {
-                    if (cell.y < extremeCoord) extremeCoord = cell.y;
-                    borderCoords.Add(cell.x);
+                    if (depth < extremeCoord) extremeCoord = depth;
                 }
-                else if (dir == Vector2Int.up)
+                else if (depth > extremeCoord)
                 {
-                    if (cell.y > extremeCoord) extremeCoord = cell.y;
-                    borderCoords.Add(cell.x);
-                }
-                else if (dir == Vector2Int.left)
-                {
-                    if (cell.x < extremeCoord) extremeCoord = cell.x;
-                    borderCoords.Add(cell.y);
-                }
-                else if (dir == Vector2Int.right)
-                {
-                    if (cell.x > extremeCoord) extremeCoord = cell.x;
-                    borderCoords.Add(cell.y);
+                    extremeCoord = depth;
                 }
             }
+
+            for (int k = 0; k < offsets.Count; k++)
+            {
+                Vector2Int cell = origin + offsets[k];
+                int depth = (dir == Vector2Int.down || dir == Vector2Int.up) ? cell.y : cell.x;
+                if (depth != extremeCoord) continue;
+                int cross = (dir == Vector2Int.down || dir == Vector2Int.up) ? cell.x : cell.y;
+                borderCoords.Add(cross);
+            }
+
+            if (borderCoords.Count == 0)
+                return false;
 
             if (dir == Vector2Int.down && extremeCoord != 1) return false;
             if (dir == Vector2Int.up && extremeCoord != H - 2) return false;
             if (dir == Vector2Int.left && extremeCoord != 1) return false;
             if (dir == Vector2Int.right && extremeCoord != W - 2) return false;
 
+            CellData sampleGate = default;
+            bool hasSample = false;
             foreach (int coord in borderCoords)
             {
                 Vector2Int gatePos = dir == Vector2Int.down ? new Vector2Int(coord, 0)
@@ -1526,16 +1535,178 @@ namespace LegoPuzzle.Editor
                     return false;
                 if (gateCell.gateColorType != BlockColorType.Universal && gateCell.gateColorType != piece.colorType)
                     return false;
+
+                if (!hasSample)
+                {
+                    sampleGate = gateCell;
+                    hasSample = true;
+                }
+            }
+
+            if (!hasSample) return false;
+
+            // Уся ширина або висота блока має лежати всередині воріт. Отвір може бути довшим.
+            bool alongX = dir == Vector2Int.down || dir == Vector2Int.up;
+            int line = dir == Vector2Int.down ? 0 : dir == Vector2Int.up ? H - 1 : dir == Vector2Int.left ? 0 : W - 1;
+            int sampleCross = 0;
+            foreach (int coord in borderCoords)
+            {
+                sampleCross = coord;
+                break;
+            }
+
+            int min = sampleCross;
+            int max = sampleCross;
+            while (IsSameGeneratorGate(level, alongX, line, min - 1, sampleGate)) min--;
+            while (IsSameGeneratorGate(level, alongX, line, max + 1, sampleGate)) max++;
+
+            for (int k = 0; k < offsets.Count; k++)
+            {
+                Vector2Int cell = origin + offsets[k];
+                int cross = alongX ? cell.x : cell.y;
+                if (cross < min || cross > max) return false;
+            }
+
+            return GeneratorExitCorridorClear(level, piece, origin, offsets, dir, expectedExitDir, origins, exited);
+        }
+
+        /// <summary>
+        /// Виріз фігури не виходить крізь інші блоки: кожен стовпчик має дійти до воріт по порожніх клітинках.
+        /// </summary>
+        private static bool GeneratorExitCorridorClear(LevelData level, LegoPieceData self, Vector2Int origin, List<Vector2Int> offsets, Vector2Int dir, ExitDirection expectedExitDir, Vector2Int[] origins, bool[] exited)
+        {
+            if (level == null || offsets == null || offsets.Count == 0) return false;
+
+            var own = new HashSet<Vector2Int>();
+            for (int i = 0; i < offsets.Count; i++)
+                own.Add(origin + offsets[i]);
+
+            var blocked = new HashSet<Vector2Int>();
+            if (level.pieces != null)
+            {
+                for (int p = 0; p < level.pieces.Count; p++)
+                {
+                    LegoPieceData other = level.pieces[p];
+                    if (other == null || other == self || other.shape == null) continue;
+                    if (exited != null && p < exited.Length && exited[p]) continue;
+                    Vector2Int otherOrigin = (origins != null && p < origins.Length) ? origins[p] : other.originPosition;
+                    List<Vector2Int> otherOffsets = other.GetOrientedOffsets();
+                    for (int c = 0; c < otherOffsets.Count; c++)
+                        blocked.Add(otherOrigin + otherOffsets[c]);
+                }
+            }
+
+            int limit = Math.Max(level.gridWidth, level.gridHeight) + 2;
+            for (int i = 0; i < offsets.Count; i++)
+            {
+                Vector2Int pos = origin + offsets[i] + dir;
+                for (int guard = 0; guard < limit; guard++)
+                {
+                    if (!level.IsInsideGrid(pos.x, pos.y)) return false;
+                    if (own.Contains(pos))
+                    {
+                        pos += dir;
+                        continue;
+                    }
+
+                    if (blocked.Contains(pos)) return false;
+
+                    CellData cell = level.GetCell(pos.x, pos.y);
+                    bool isGate = cell.cellType == CellType.ExitGate || cell.cellType == CellType.HalfExitGate;
+                    if (isGate)
+                    {
+                        if (cell.exitDirection != expectedExitDir) return false;
+                        if (cell.gateColorType != BlockColorType.Universal && cell.gateColorType != self.colorType)
+                            return false;
+                        break;
+                    }
+
+                    if (cell.cellType != CellType.Walkable)
+                        return false;
+
+                    pos += dir;
+                }
             }
 
             return true;
+        }
+
+        /// <summary>
+        /// Грань фігури, якою вона входить у ворота. Довжина виходу дорівнює цій грані, а не bounding box.
+        /// </summary>
+        private static bool TryGetExitEdge(List<Vector2Int> offsets, ExitDirection side, out int crossMin, out int edgeLen, out int edgeDepth)
+        {
+            crossMin = 0;
+            edgeLen = 0;
+            edgeDepth = 0;
+            if (offsets == null || offsets.Count == 0) return false;
+
+            bool horizontal = side == ExitDirection.Down || side == ExitDirection.Up;
+            int extreme = (side == ExitDirection.Down || side == ExitDirection.Left) ? int.MaxValue : int.MinValue;
+            for (int i = 0; i < offsets.Count; i++)
+            {
+                int depth = horizontal ? offsets[i].y : offsets[i].x;
+                if (side == ExitDirection.Down || side == ExitDirection.Left)
+                {
+                    if (depth < extreme) extreme = depth;
+                }
+                else if (depth > extreme)
+                {
+                    extreme = depth;
+                }
+            }
+
+            int minCross = int.MaxValue;
+            int maxCross = int.MinValue;
+            int count = 0;
+            for (int i = 0; i < offsets.Count; i++)
+            {
+                int depth = horizontal ? offsets[i].y : offsets[i].x;
+                if (depth != extreme) continue;
+                int cross = horizontal ? offsets[i].x : offsets[i].y;
+                if (cross < minCross) minCross = cross;
+                if (cross > maxCross) maxCross = cross;
+                count++;
+            }
+
+            edgeLen = maxCross - minCross + 1;
+            if (count != edgeLen) return false;
+
+            int shapeMin = int.MaxValue;
+            int shapeMax = int.MinValue;
+            for (int i = 0; i < offsets.Count; i++)
+            {
+                int cross = horizontal ? offsets[i].x : offsets[i].y;
+                if (cross < shapeMin) shapeMin = cross;
+                if (cross > shapeMax) shapeMax = cross;
+            }
+
+            // Ворота не вужчі за блок: ніс має покривати всю ширину фігури.
+            if (minCross != shapeMin || maxCross != shapeMax) return false;
+
+            crossMin = minCross;
+            edgeDepth = extreme;
+            return true;
+        }
+
+        private static bool IsSameGeneratorGate(LevelData level, bool alongX, int line, int cross, CellData gateCell)
+        {
+            int x = alongX ? cross : line;
+            int y = alongX ? line : cross;
+            if (!level.IsInsideGrid(x, y)) return false;
+
+            CellData other = level.GetCell(x, y);
+            bool isExit = other.cellType == CellType.ExitGate || other.cellType == CellType.HalfExitGate;
+            return isExit
+                && other.exitDirection == gateCell.exitDirection
+                && other.gateColorType == gateCell.gateColorType;
         }
 
         private static bool CanPieceFitAt(LevelData level, LegoPieceData piece, Vector2Int newOrigin)
         {
             int W = level.gridWidth;
             int H = level.gridHeight;
-            var offsets = piece.shape.GetRotatedOffsets(piece.rotationSteps);
+            var offsets = piece.GetOrientedOffsets();
 
             for (int i = 0; i < offsets.Count; i++)
             {
@@ -1550,7 +1721,7 @@ namespace LegoPuzzle.Editor
                 foreach (var other in level.pieces)
                 {
                     if (other == piece) continue;
-                    var otherOffsets = other.shape.GetRotatedOffsets(other.rotationSteps);
+                    var otherOffsets = other.GetOrientedOffsets();
                     for (int j = 0; j < otherOffsets.Count; j++)
                     {
                         if (cell == other.originPosition + otherOffsets[j])
@@ -1829,7 +2000,7 @@ namespace LegoPuzzle.Editor
             {
                 var p = level.pieces[i];
                 pieceOffsets[i] = p.shape != null
-                    ? p.shape.GetRotatedOffsets(p.rotationSteps)
+                    ? p.GetOrientedOffsets()
                     : new List<Vector2Int> { Vector2Int.zero };
             }
 
@@ -1839,7 +2010,7 @@ namespace LegoPuzzle.Editor
                 for (int i = 0; i < n; i++)
                 {
                     var p = level.pieces[i];
-                    Vector2Int pBounds = p.shape != null ? p.shape.GetRotatedBounds(p.rotationSteps) : Vector2Int.one;
+                    Vector2Int pBounds = p.shape != null ? p.GetOrientedBounds() : Vector2Int.one;
                     Vector2Int bestOrigin = p.originPosition;
                     int bestDist = int.MaxValue;
 
@@ -1977,7 +2148,7 @@ namespace LegoPuzzle.Editor
                         if (restriction == MoveRestriction.VerticalOnly && (dir == Vector2Int.left || dir == Vector2Int.right))
                             continue;
 
-                        if (CanExitImmediately(level, pieceData, tempOrigins[i], dir))
+                        if (CanExitImmediately(level, pieceData, tempOrigins[i], dir, tempOrigins, tempExited))
                         {
                             Array.Copy(tempOrigins, nextOrigins, n);
                             Array.Copy(tempExited, nextExited, n);
@@ -2020,7 +2191,7 @@ namespace LegoPuzzle.Editor
                             Array.Copy(tempExited, nextExited, n);
                             nextOrigins[i] = newOrigin;
 
-                            if (CanPieceExitAnywhereImmediate(level, pieceData, newOrigin))
+                            if (CanPieceExitAnywhereImmediate(level, pieceData, newOrigin, tempOrigins, tempExited))
                             {
                                 nextExited[i] = true;
                                 StateKey exitKey = PackBfsKey(n, nextOrigins, nextExited);

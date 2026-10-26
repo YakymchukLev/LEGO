@@ -26,11 +26,9 @@ namespace LegoPuzzle.Runtime
             if (loader == null || loader.CurrentLevel == null || movingPiece == null || movingPiece.PieceData == null) return false;
 
             var offsets = movingPiece.PieceData.shape != null
-                ? movingPiece.PieceData.shape.GetRotatedOffsets(movingPiece.PieceData.rotationSteps)
+                ? movingPiece.PieceData.GetOrientedOffsets()
                 : new List<Vector2Int> { Vector2Int.zero };
 
-            Color pieceColor = movingPiece.PieceData.GetColor();
-            BlockColorType pieceColorType = movingPiece.PieceData.colorType;
             MoveRestriction restriction = movingPiece.PieceData.moveRestriction;
 
             if (restriction == MoveRestriction.Locked) return false;
@@ -49,32 +47,15 @@ namespace LegoPuzzle.Runtime
 
                 CellData cellData = currentLevel.GetCell(cellPos.x, cellPos.y);
 
-                // Не можна ставати на порожні місця або перешкоди (повні, половинчасті та четвертинки)
-                if (cellData.cellType == CellType.Empty || cellData.cellType == CellType.Obstacle || cellData.cellType == CellType.HalfObstacle || cellData.cellType == CellType.QuarterObstacle)
+                // Ворота — суцільна колізія, як стіна. Блок ніколи не займає їхню клітинку.
+                // Вихід спрацьовує з сусідньої клітинки, коли весь блок вміщається в отвір.
+                if (cellData.cellType == CellType.Empty
+                    || cellData.cellType == CellType.Obstacle
+                    || cellData.cellType == CellType.HalfObstacle
+                    || cellData.cellType == CellType.QuarterObstacle
+                    || cellData.cellType == CellType.ExitGate
+                    || cellData.cellType == CellType.HalfExitGate)
                     return false;
-
-                // На ворота (повні та напів-ворота) дозволено ставати ТІЛЬКИ якщо збігається колір та дозволений напрямок руху
-                if (cellData.cellType == CellType.ExitGate || cellData.cellType == CellType.HalfExitGate)
-                {
-                    bool colorMatches = (cellData.gateColorType == BlockColorType.Universal) ||
-                                        (cellData.gateColorType == pieceColorType) ||
-                                        ColorsMatch(pieceColor, cellData.GetEffectiveColor());
-
-                    if (!colorMatches)
-                        return false;
-
-                    if (restriction == MoveRestriction.HorizontalOnly &&
-                        (cellData.exitDirection == ExitDirection.Up || cellData.exitDirection == ExitDirection.Down))
-                    {
-                        return false;
-                    }
-
-                    if (restriction == MoveRestriction.VerticalOnly &&
-                        (cellData.exitDirection == ExitDirection.Left || cellData.exitDirection == ExitDirection.Right))
-                    {
-                        return false;
-                    }
-                }
 
                 // Перевірка колізій з іншими блоками LEGO
                 if (activePieces != null)
@@ -95,6 +76,60 @@ namespace LegoPuzzle.Runtime
             }
 
             return true;
+        }
+
+        /// <summary>
+        /// Уся ширина блока (вихід вгору/вниз) або висота (вліво/вправо) має лежати
+        /// всередині одного отвору. Ворота можуть бути довшими за блок.
+        /// Вужча сторона дотику не дозволяє вийти, якщо решта блока ширша за отвір.
+        /// </summary>
+        private static bool PieceFitsThroughGate(LevelData level, List<Vector2Int> pieceCells, List<Vector2Int> contactCells)
+        {
+            if (level == null || pieceCells == null || pieceCells.Count == 0 || contactCells == null || contactCells.Count == 0)
+                return false;
+
+            Vector2Int pos = contactCells[0];
+            if (!level.IsInsideGrid(pos.x, pos.y)) return false;
+
+            CellData gateCell = level.GetCell(pos.x, pos.y);
+            if (!IsExitCell(gateCell.cellType)) return false;
+
+            bool alongX = gateCell.exitDirection == ExitDirection.Up || gateCell.exitDirection == ExitDirection.Down;
+            int line = alongX ? pos.y : pos.x;
+            int cross = alongX ? pos.x : pos.y;
+
+            int min = cross;
+            int max = cross;
+            while (IsSameGate(level, alongX, line, min - 1, gateCell)) min--;
+            while (IsSameGate(level, alongX, line, max + 1, gateCell)) max++;
+
+            int pieceMin = int.MaxValue;
+            int pieceMax = int.MinValue;
+            for (int i = 0; i < pieceCells.Count; i++)
+            {
+                int pieceCross = alongX ? pieceCells[i].x : pieceCells[i].y;
+                if (pieceCross < pieceMin) pieceMin = pieceCross;
+                if (pieceCross > pieceMax) pieceMax = pieceCross;
+            }
+
+            return pieceMin >= min && pieceMax <= max;
+        }
+
+        private static bool IsSameGate(LevelData level, bool alongX, int line, int cross, CellData gateCell)
+        {
+            int x = alongX ? cross : line;
+            int y = alongX ? line : cross;
+            if (!level.IsInsideGrid(x, y)) return false;
+
+            CellData other = level.GetCell(x, y);
+            return IsExitCell(other.cellType)
+                && other.exitDirection == gateCell.exitDirection
+                && other.gateColorType == gateCell.gateColorType;
+        }
+
+        private static bool IsExitCell(CellType cellType)
+        {
+            return cellType == CellType.ExitGate || cellType == CellType.HalfExitGate;
         }
 
         public void GetSlideRangeHorizontal(LegoPieceView piece, Vector2Int currentOrigin, out int minStepX, out int maxStepX)
@@ -161,7 +196,7 @@ namespace LegoPuzzle.Runtime
             if (piece.IsFrozen) return false;
 
             var offsets = piece.PieceData.shape != null
-                ? piece.PieceData.shape.GetRotatedOffsets(piece.PieceData.rotationSteps)
+                ? piece.PieceData.GetOrientedOffsets()
                 : new List<Vector2Int> { Vector2Int.zero };
 
             List<Vector2Int> occupied = new List<Vector2Int>(offsets.Count);
@@ -203,182 +238,144 @@ namespace LegoPuzzle.Runtime
         {
             if (occupied == null || occupied.Count == 0) return false;
 
-            switch (dir)
+            List<Vector2Int> edge = GetLeadingEdge(occupied, dir);
+            if (edge.Count == 0) return false;
+
+            LevelData level = Loader != null ? Loader.CurrentLevel : null;
+
+            // Блок уже стоїть на воротах (старі розкладки).
+            if (EdgeIsMatchingGate(edge, dir, pieceColorType, pieceColor)
+                && PieceFitsThroughGate(level, occupied, edge)
+                && ExitCorridorClear(piece, occupied, dir, pieceColorType, pieceColor))
+                return true;
+
+            Vector2Int step = dir switch
             {
-                case ExitDirection.Up:
+                ExitDirection.Up => Vector2Int.up,
+                ExitDirection.Down => Vector2Int.down,
+                ExitDirection.Left => Vector2Int.left,
+                ExitDirection.Right => Vector2Int.right,
+                _ => Vector2Int.zero
+            };
+
+            var inFront = new List<Vector2Int>(edge.Count);
+            for (int i = 0; i < edge.Count; i++)
+            {
+                inFront.Add(edge[i] + step);
+            }
+
+            // Вихід з клітинки перед воротами. На самі ворота блок не заходить.
+            // Виріз фігури не може проходити крізь інший блок.
+            return EdgeIsMatchingGate(inFront, dir, pieceColorType, pieceColor)
+                && PieceFitsThroughGate(level, occupied, inFront)
+                && ExitCorridorClear(piece, occupied, dir, pieceColorType, pieceColor);
+        }
+
+        /// <summary>
+        /// Кожна клітинка блока має дійти до своїх воріт порожнім коридором.
+        /// Інший блок у вирізі, як у L, вихід блокує.
+        /// </summary>
+        private bool ExitCorridorClear(LegoPieceView piece, List<Vector2Int> occupied, ExitDirection dir, BlockColorType pieceColorType, Color pieceColor)
+        {
+            var loader = Loader;
+            LevelData level = loader != null ? loader.CurrentLevel : null;
+            if (level == null || occupied == null || occupied.Count == 0) return false;
+
+            Vector2Int step = dir switch
+            {
+                ExitDirection.Up => Vector2Int.up,
+                ExitDirection.Down => Vector2Int.down,
+                ExitDirection.Left => Vector2Int.left,
+                ExitDirection.Right => Vector2Int.right,
+                _ => Vector2Int.zero
+            };
+            if (step == Vector2Int.zero) return false;
+
+            var own = new HashSet<Vector2Int>(occupied);
+            var blocked = new HashSet<Vector2Int>();
+            var activePieces = loader.ActivePieces;
+            if (activePieces != null)
+            {
+                for (int i = 0; i < activePieces.Count; i++)
                 {
-                    int maxY = int.MinValue;
-                    HashSet<int> occupiedCols = new HashSet<int>();
-                    foreach (var cell in occupied)
-                    {
-                        if (cell.y > maxY) maxY = cell.y;
-                        occupiedCols.Add(cell.x);
-                    }
-
-                    bool currentMatch = true;
-                    foreach (int x in occupiedCols)
-                    {
-                        Vector2Int gatePos = new Vector2Int(x, maxY);
-                        if (!IsMatchingExitGate(gatePos, dir, pieceColorType, pieceColor))
-                        {
-                            currentMatch = false;
-                            break;
-                        }
-                    }
-                    if (currentMatch) return true;
-
-                    bool adjacentMatch = true;
-                    foreach (int x in occupiedCols)
-                    {
-                        Vector2Int gatePos = new Vector2Int(x, maxY + 1);
-                        if (!IsMatchingExitGate(gatePos, dir, pieceColorType, pieceColor))
-                        {
-                            adjacentMatch = false;
-                            break;
-                        }
-                    }
-                    if (adjacentMatch)
-                    {
-                        if (CanMovePieceTo(piece, origin + Vector2Int.up))
-                        {
-                            return true;
-                        }
-                    }
-
-                    return false;
-                }
-
-                case ExitDirection.Down:
-                {
-                    int minY = int.MaxValue;
-                    HashSet<int> occupiedCols = new HashSet<int>();
-                    foreach (var cell in occupied)
-                    {
-                        if (cell.y < minY) minY = cell.y;
-                        occupiedCols.Add(cell.x);
-                    }
-
-                    bool currentMatch = true;
-                    foreach (int x in occupiedCols)
-                    {
-                        Vector2Int gatePos = new Vector2Int(x, minY);
-                        if (!IsMatchingExitGate(gatePos, dir, pieceColorType, pieceColor))
-                        {
-                            currentMatch = false;
-                            break;
-                        }
-                    }
-                    if (currentMatch) return true;
-
-                    bool adjacentMatch = true;
-                    foreach (int x in occupiedCols)
-                    {
-                        Vector2Int gatePos = new Vector2Int(x, minY - 1);
-                        if (!IsMatchingExitGate(gatePos, dir, pieceColorType, pieceColor))
-                        {
-                            adjacentMatch = false;
-                            break;
-                        }
-                    }
-                    if (adjacentMatch)
-                    {
-                        if (CanMovePieceTo(piece, origin + Vector2Int.down))
-                        {
-                            return true;
-                        }
-                    }
-
-                    return false;
-                }
-
-                case ExitDirection.Right:
-                {
-                    int maxX = int.MinValue;
-                    HashSet<int> occupiedRows = new HashSet<int>();
-                    foreach (var cell in occupied)
-                    {
-                        if (cell.x > maxX) maxX = cell.x;
-                        occupiedRows.Add(cell.y);
-                    }
-
-                    bool currentMatch = true;
-                    foreach (int y in occupiedRows)
-                    {
-                        Vector2Int gatePos = new Vector2Int(maxX, y);
-                        if (!IsMatchingExitGate(gatePos, dir, pieceColorType, pieceColor))
-                        {
-                            currentMatch = false;
-                            break;
-                        }
-                    }
-                    if (currentMatch) return true;
-
-                    bool adjacentMatch = true;
-                    foreach (int y in occupiedRows)
-                    {
-                        Vector2Int gatePos = new Vector2Int(maxX + 1, y);
-                        if (!IsMatchingExitGate(gatePos, dir, pieceColorType, pieceColor))
-                        {
-                            adjacentMatch = false;
-                            break;
-                        }
-                    }
-                    if (adjacentMatch)
-                    {
-                        if (CanMovePieceTo(piece, origin + Vector2Int.right))
-                        {
-                            return true;
-                        }
-                    }
-
-                    return false;
-                }
-
-                case ExitDirection.Left:
-                {
-                    int minX = int.MaxValue;
-                    HashSet<int> occupiedRows = new HashSet<int>();
-                    foreach (var cell in occupied)
-                    {
-                        if (cell.x < minX) minX = cell.x;
-                        occupiedRows.Add(cell.y);
-                    }
-
-                    bool currentMatch = true;
-                    foreach (int y in occupiedRows)
-                    {
-                        Vector2Int gatePos = new Vector2Int(minX, y);
-                        if (!IsMatchingExitGate(gatePos, dir, pieceColorType, pieceColor))
-                        {
-                            currentMatch = false;
-                            break;
-                        }
-                    }
-                    if (currentMatch) return true;
-
-                    bool adjacentMatch = true;
-                    foreach (int y in occupiedRows)
-                    {
-                        Vector2Int gatePos = new Vector2Int(minX - 1, y);
-                        if (!IsMatchingExitGate(gatePos, dir, pieceColorType, pieceColor))
-                        {
-                            adjacentMatch = false;
-                            break;
-                        }
-                    }
-                    if (adjacentMatch)
-                    {
-                        if (CanMovePieceTo(piece, origin + Vector2Int.left))
-                        {
-                            return true;
-                        }
-                    }
-
-                    return false;
+                    LegoPieceView other = activePieces[i];
+                    if (other == null || other == piece || !other.gameObject.activeSelf) continue;
+                    List<Vector2Int> otherCells = other.GetCurrentOccupiedCells();
+                    if (otherCells == null) continue;
+                    for (int c = 0; c < otherCells.Count; c++)
+                        blocked.Add(otherCells[c]);
                 }
             }
 
-            return false;
+            int limit = Mathf.Max(level.gridWidth, level.gridHeight) + 2;
+            for (int i = 0; i < occupied.Count; i++)
+            {
+                Vector2Int pos = occupied[i] + step;
+                for (int guard = 0; guard < limit; guard++)
+                {
+                    if (!level.IsInsideGrid(pos.x, pos.y)) return false;
+                    if (own.Contains(pos))
+                    {
+                        pos += step;
+                        continue;
+                    }
+
+                    if (blocked.Contains(pos)) return false;
+
+                    CellData cell = level.GetCell(pos.x, pos.y);
+                    if (IsExitCell(cell.cellType))
+                    {
+                        if (!IsMatchingExitGate(pos, dir, pieceColorType, pieceColor))
+                            return false;
+                        break;
+                    }
+
+                    if (cell.cellType != CellType.Walkable)
+                        return false;
+
+                    pos += step;
+                }
+            }
+
+            return true;
+        }
+
+        private static List<Vector2Int> GetLeadingEdge(List<Vector2Int> occupied, ExitDirection dir)
+        {
+            var edge = new List<Vector2Int>();
+            int extreme = (dir == ExitDirection.Down || dir == ExitDirection.Left) ? int.MaxValue : int.MinValue;
+
+            for (int i = 0; i < occupied.Count; i++)
+            {
+                int depth = (dir == ExitDirection.Up || dir == ExitDirection.Down) ? occupied[i].y : occupied[i].x;
+                if (dir == ExitDirection.Down || dir == ExitDirection.Left)
+                {
+                    if (depth < extreme) extreme = depth;
+                }
+                else if (depth > extreme)
+                {
+                    extreme = depth;
+                }
+            }
+
+            for (int i = 0; i < occupied.Count; i++)
+            {
+                int depth = (dir == ExitDirection.Up || dir == ExitDirection.Down) ? occupied[i].y : occupied[i].x;
+                if (depth == extreme) edge.Add(occupied[i]);
+            }
+
+            return edge;
+        }
+
+        private bool EdgeIsMatchingGate(List<Vector2Int> cells, ExitDirection dir, BlockColorType pieceColorType, Color pieceColor)
+        {
+            for (int i = 0; i < cells.Count; i++)
+            {
+                if (!IsMatchingExitGate(cells[i], dir, pieceColorType, pieceColor))
+                    return false;
+            }
+
+            return cells.Count > 0;
         }
 
         public bool IsMatchingExitGate(Vector2Int pos, ExitDirection expectedDir, BlockColorType pieceColorType, Color pieceColor)

@@ -258,6 +258,7 @@ namespace LegoPuzzle.Editor
         {
             string[] guids = AssetDatabase.FindAssets("t:LevelData");
             var list = new List<LevelData>();
+            var knownIndexes = new HashSet<int>();
 
             foreach (var guid in guids)
             {
@@ -269,7 +270,23 @@ namespace LegoPuzzle.Editor
                 if (level != null && !list.Contains(level))
                 {
                     list.Add(level);
+                    knownIndexes.Add(level.levelIndex);
                 }
+            }
+
+            foreach (var guid in guids)
+            {
+                string path = AssetDatabase.GUIDToAssetPath(guid).Replace('\\', '/');
+                if (!path.Contains("/Resources/Levels/")) continue;
+
+                var level = AssetDatabase.LoadAssetAtPath<LevelData>(path);
+                if (level == null || list.Contains(level) || knownIndexes.Contains(level.levelIndex))
+                {
+                    continue;
+                }
+
+                list.Add(level);
+                knownIndexes.Add(level.levelIndex);
             }
 
             list.Sort((a, b) =>

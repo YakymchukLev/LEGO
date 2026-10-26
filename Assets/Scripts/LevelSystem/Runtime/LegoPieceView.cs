@@ -92,10 +92,10 @@ namespace LegoPuzzle.Runtime
             CurrentOrigin = data.originPosition;
             CurrentFreezeCount = data != null ? Mathf.Max(0, data.freezeCount) : 0;
             modelInstance = visualChild;
-            currentOffsets = data.shape != null ? data.shape.GetRotatedOffsets(data.rotationSteps) : new List<Vector2Int> { Vector2Int.zero };
+            currentOffsets = data.shape != null ? data.GetOrientedOffsets() : new List<Vector2Int> { Vector2Int.zero };
 
             // Розраховуємо геометричний центр форми фігури для симетричного масштабування та підйому
-            Vector2Int shapeBounds = PieceData.shape != null ? PieceData.shape.GetRotatedBounds(PieceData.rotationSteps) : Vector2Int.one;
+            Vector2Int shapeBounds = PieceData.shape != null ? PieceData.GetOrientedBounds() : Vector2Int.one;
             visualCenter = new Vector3((shapeBounds.x - 1) * cellSize * 0.5f, 0f, (shapeBounds.y - 1) * cellSize * 0.5f);
 
             if (visualRoot == null)
@@ -175,6 +175,7 @@ namespace LegoPuzzle.Runtime
             foreach (var offset in currentOffsets)
             {
                 var box = gameObject.AddComponent<BoxCollider>();
+                box.isTrigger = false;
                 box.center = new Vector3(offset.x * cellSize, modelHeight * 0.5f + 0.02f, offset.y * cellSize);
                 box.size = new Vector3(cellSize * 0.95f, Mathf.Max(modelHeight, 0.4f), cellSize * 0.95f);
             }
@@ -216,12 +217,14 @@ namespace LegoPuzzle.Runtime
         {
             if (model == null || PieceData.shape == null) return;
 
-            Vector2Int shapeBounds = PieceData.shape.GetRotatedBounds(PieceData.rotationSteps);
+            Vector2Int shapeBounds = PieceData.GetOrientedBounds();
             var renderers = model.GetComponentsInChildren<Renderer>();
             if (renderers.Length == 0) return;
 
-            // 1. Поворот моделі відповідно до rotationSteps (за годинниковою стрілкою +90° за крок)
+            // 1. Поворот моделі відповідно до rotationSteps (за годинниковою стрілкою +90° за крок).
+            // Дзеркало по X застосовується в локальному масштабі до повороту — як SpriteRenderer.flipX.
             float angle = PieceData.rotationSteps * 90f;
+            float mirrorX = PieceData.flipHorizontal ? -1f : 1f;
             model.transform.localRotation = Quaternion.Euler(0f, angle, 0f);
             model.transform.localPosition = Vector3.zero;
 
@@ -250,7 +253,12 @@ namespace LegoPuzzle.Runtime
                 float factorZ = targetSizeZ / meshSizeZ;
                 float scale = Mathf.Min(factorX, factorZ);
 
-                model.transform.localScale = Vector3.one * scale;
+                model.transform.localScale = new Vector3(scale * mirrorX, scale, scale);
+            }
+            else if (mirrorX < 0f)
+            {
+                Vector3 current = model.transform.localScale;
+                model.transform.localScale = new Vector3(-Mathf.Abs(current.x), current.y, current.z);
             }
 
             // 4. Перераховуємо межі після масштабування
@@ -359,7 +367,7 @@ namespace LegoPuzzle.Runtime
             restrictionIconRenderer.transform.localRotation = Quaternion.Euler(90f, 0f, rotAngle);
 
             // Масштаб значка на поверхні деталі (великий, виразний та адаптований до розміру фігури)
-            Vector2Int shapeBounds = PieceData.shape != null ? PieceData.shape.GetRotatedBounds(PieceData.rotationSteps) : Vector2Int.one;
+            Vector2Int shapeBounds = PieceData.shape != null ? PieceData.GetOrientedBounds() : Vector2Int.one;
             int minDim = Mathf.Min(shapeBounds.x, shapeBounds.y);
             int maxDim = Mathf.Max(shapeBounds.x, shapeBounds.y);
 
@@ -1090,8 +1098,6 @@ namespace LegoPuzzle.Runtime
                 outlineObjects = new List<GameObject>();
             }
 
-            Material outlineMat = GetOrCreateOutlineMaterial();
-
             // 1. SkinnedMeshRenderer (3D-моделі деталей з BlendShapes морфінгом)
             var smrs = modelInstance.GetComponentsInChildren<SkinnedMeshRenderer>(true);
             foreach (var smr in smrs)
@@ -1108,8 +1114,9 @@ namespace LegoPuzzle.Runtime
                 Mesh bakedMesh = new Mesh();
                 bakedMesh.name = smr.name + "_BakedOutline";
                 smr.BakeMesh(bakedMesh);
-
                 BakeSmoothedNormalsToTangents(bakedMesh);
+
+                Material outlineMat = GetOrCreateOutlineMaterial();
 
                 MeshFilter outMf = outlineChild.AddComponent<MeshFilter>();
                 outMf.sharedMesh = bakedMesh;
@@ -1140,6 +1147,8 @@ namespace LegoPuzzle.Runtime
                 Mesh outlineMesh = Instantiate(mf.sharedMesh);
                 outlineMesh.name = mf.sharedMesh.name + "_Outline";
                 BakeSmoothedNormalsToTangents(outlineMesh);
+
+                Material outlineMat = GetOrCreateOutlineMaterial();
 
                 MeshFilter outMf = outlineChild.AddComponent<MeshFilter>();
                 outMf.sharedMesh = outlineMesh;

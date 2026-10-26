@@ -433,10 +433,18 @@ namespace LegoPuzzle.Runtime
                     gemIconImage.sprite = GetGemSprite();
                 }
                 EnsureButtonListener();
+                EnsureIntroSlide();
                 return;
             }
 
             CreateGemsWidget(canvas);
+            EnsureIntroSlide();
+        }
+
+        private void EnsureIntroSlide()
+        {
+            if (!Application.isPlaying || widgetContainer == null) return;
+            MenuBalanceSlideIn.AttachTo(widgetContainer.gameObject, 0f);
         }
 
         private void EnsureButtonListener()

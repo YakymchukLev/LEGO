@@ -344,6 +344,30 @@ namespace LegoPuzzle.Runtime
             }
         }
 
+        /// <summary>
+        /// Ворота — звичайна тверда колізія, не тригер. Блок не проходить крізь клітинку.
+        /// </summary>
+        private void EnsureSolidGateCollider()
+        {
+            Collider[] colliders = GetComponents<Collider>();
+            if (colliders == null || colliders.Length == 0)
+            {
+                BoxCollider box = gameObject.AddComponent<BoxCollider>();
+                box.isTrigger = false;
+                box.center = new Vector3(0f, 0.5f, 0f);
+                box.size = Vector3.one;
+                return;
+            }
+
+            for (int i = 0; i < colliders.Length; i++)
+            {
+                if (colliders[i] != null)
+                {
+                    colliders[i].isTrigger = false;
+                }
+            }
+        }
+
         private void SetupExitGate(CellData data, BlockPalette palette, float cellSize)
         {
             cachedCellSize = cellSize;
@@ -391,6 +415,8 @@ namespace LegoPuzzle.Runtime
                     if (s != null) arrowRenderer.sharedMaterial = new Material(s);
                 }
             }
+
+            EnsureSolidGateCollider();
 
             if (arrowTransform != null)
             {
