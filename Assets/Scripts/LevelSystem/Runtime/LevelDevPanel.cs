@@ -792,22 +792,26 @@ namespace LegoPuzzle.Runtime
 
         private List<LevelData> GetAllAvailableLevels()
         {
+            List<LevelData> list;
             if (LevelLoader.HasInstance && LevelLoader.Instance.AllLevels != null && LevelLoader.Instance.AllLevels.Count > 0)
             {
-                var list = new List<LevelData>(LevelLoader.Instance.AllLevels);
-                list.RemoveAll(l => l == null);
-                return list;
+                list = new List<LevelData>(LevelLoader.Instance.AllLevels);
+            }
+            else
+            {
+                LevelData[] loaded = Resources.LoadAll<LevelData>("Levels");
+                list = loaded != null ? new List<LevelData>(loaded) : new List<LevelData>();
             }
 
-            // Fallback: Завантажуємо з Resources/Levels
-            LevelData[] loaded = Resources.LoadAll<LevelData>("Levels");
-            var result = new List<LevelData>(loaded);
-            result.Sort((a, b) =>
+            list.RemoveAll(l => l == null);
+            list.Sort((a, b) =>
             {
-                if (a.levelIndex != b.levelIndex) return a.levelIndex.CompareTo(b.levelIndex);
+                int ai = a.levelIndex > 0 ? a.levelIndex : 0;
+                int bi = b.levelIndex > 0 ? b.levelIndex : 0;
+                if (ai != bi) return ai.CompareTo(bi);
                 return string.Compare(a.name, b.name, StringComparison.OrdinalIgnoreCase);
             });
-            return result;
+            return list;
         }
 
         public void JumpToLevel(int targetIndex)

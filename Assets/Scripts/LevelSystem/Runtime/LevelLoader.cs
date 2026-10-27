@@ -1846,83 +1846,94 @@ namespace LegoPuzzle.Runtime
 
         private void EnsureAllLevelsPopulated()
         {
-            if (allLevels == null)
-            {
-                allLevels = new List<LevelData>();
-            }
-
-            allLevels.RemoveAll(level => level == null);
-            AppendMissingResourceLevels();
-
-            if (allLevels.Count > 0)
-            {
-                return;
-            }
-
-            // 1. Завантаження з Resources/Levels (працює і в Editor, і в Standalone/Mobile Build)
-            var loadedLevels = Resources.LoadAll<LevelData>("Levels");
+            // Resources/Levels is the source of truth. Always rebuild + sort by levelIndex
+            // so scene leftovers / Missing refs after deleting Assets/Levels cannot scramble order.
+            LevelData[] loadedLevels = Resources.LoadAll<LevelData>("Levels");
             if (loadedLevels != null && loadedLevels.Length > 0)
             {
-                var list = new List<LevelData>(loadedLevels);
-                list.Sort((a, b) => a.levelIndex.CompareTo(b.levelIndex));
-                allLevels = list;
-                return;
+                allLevels = BuildSortedUniqueLevelList(loadedLevels);
+                if (allLevels.Count > 0)
+                    return;
             }
 
 #if UNITY_EDITOR
-            // 2. Fallback для Unity Editor: пошук через AssetDatabase
-            string[] guids = UnityEditor.AssetDatabase.FindAssets("t:LevelData");
+            string[] guids = UnityEditor.AssetDatabase.FindAssets("t:LevelData", new[] { "Assets/Resources/Levels" });
+            if (guids == null || guids.Length == 0)
+                guids = UnityEditor.AssetDatabase.FindAssets("t:LevelData");
+
             if (guids != null && guids.Length > 0)
             {
                 var list = new List<LevelData>();
-                foreach (var guid in guids)
+                for (int i = 0; i < guids.Length; i++)
                 {
-                    string path = UnityEditor.AssetDatabase.GUIDToAssetPath(guid);
+                    string path = UnityEditor.AssetDatabase.GUIDToAssetPath(guids[i]);
                     var level = UnityEditor.AssetDatabase.LoadAssetAtPath<LevelData>(path);
-                    if (level != null && !list.Contains(level)) list.Add(level);
+                    if (level != null && !list.Contains(level))
+                        list.Add(level);
                 }
-                list.Sort((a, b) => a.levelIndex.CompareTo(b.levelIndex));
-                allLevels = list;
+
+                allLevels = BuildSortedUniqueLevelList(list);
             }
 #endif
+
+            if (allLevels == null)
+                allLevels = new List<LevelData>();
         }
 
-        /// <summary>
-        /// Рівні з Resources/Levels, яких ще немає в списку сцени, додаються в кінець.
-        /// Копії з тим самим levelIndex не дублюються.
-        /// </summary>
-        private void AppendMissingResourceLevels()
+        private static List<LevelData> BuildSortedUniqueLevelList(IEnumerable<LevelData> source)
         {
-            LevelData[] loadedLevels = Resources.LoadAll<LevelData>("Levels");
-            if (loadedLevels == null || loadedLevels.Length == 0)
+            var byIndex = new Dictionary<int, LevelData>();
+            foreach (LevelData level in source)
             {
-                return;
-            }
+                if (level == null) continue;
 
-            var knownIndexes = new HashSet<int>();
-            for (int i = 0; i < allLevels.Count; i++)
-            {
-                if (allLevels[i] != null)
-                {
-                    knownIndexes.Add(allLevels[i].levelIndex);
-                }
-            }
+                int index = ResolveLevelSortIndex(level);
+                if (index <= 0) continue;
 
-            var extras = new List<LevelData>();
-            for (int i = 0; i < loadedLevels.Length; i++)
-            {
-                LevelData level = loadedLevels[i];
-                if (level == null || allLevels.Contains(level) || knownIndexes.Contains(level.levelIndex))
+                // Prefer a properly named asset if two share the same index (e.g. stray ".asset").
+                if (byIndex.TryGetValue(index, out LevelData existing))
                 {
-                    continue;
+                    bool preferNew = IsBetterLevelAssetName(level.name, existing.name);
+                    if (!preferNew) continue;
                 }
 
-                extras.Add(level);
-                knownIndexes.Add(level.levelIndex);
+                byIndex[index] = level;
             }
 
-            extras.Sort((a, b) => a.levelIndex.CompareTo(b.levelIndex));
-            allLevels.AddRange(extras);
+            var sorted = new List<LevelData>(byIndex.Count);
+            var keys = new List<int>(byIndex.Keys);
+            keys.Sort();
+            for (int i = 0; i < keys.Count; i++)
+                sorted.Add(byIndex[keys[i]]);
+
+            return sorted;
+        }
+
+        private static int ResolveLevelSortIndex(LevelData level)
+        {
+            if (level == null) return -1;
+            if (level.levelIndex > 0) return level.levelIndex;
+
+            string name = level.name;
+            if (string.IsNullOrEmpty(name)) return -1;
+
+            int underscore = name.LastIndexOf('_');
+            if (underscore >= 0 && underscore < name.Length - 1
+                && int.TryParse(name.Substring(underscore + 1), out int fromName)
+                && fromName > 0)
+            {
+                return fromName;
+            }
+
+            return -1;
+        }
+
+        private static bool IsBetterLevelAssetName(string candidate, string current)
+        {
+            bool candidateOk = !string.IsNullOrEmpty(candidate) && candidate.StartsWith("Level_", StringComparison.OrdinalIgnoreCase);
+            bool currentOk = !string.IsNullOrEmpty(current) && current.StartsWith("Level_", StringComparison.OrdinalIgnoreCase);
+            if (candidateOk != currentOk) return candidateOk;
+            return string.Compare(candidate, current, StringComparison.OrdinalIgnoreCase) < 0;
         }
 
         private TMP_FontAsset GetGameFontAsset()

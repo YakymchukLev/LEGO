@@ -19,14 +19,24 @@ namespace LegoPuzzle.Data
         {
             get
             {
+                // Edit-mode editor windows must never create/touch runtime services mid-OnGUI.
+                if (!Application.isPlaying)
+                {
+                    return PlayerPrefs.GetInt(PREFS_COLORBLIND_ENABLED, 0) == 1;
+                }
+
                 if (Runtime.GameSettingsManager.HasInstance)
                 {
                     return Runtime.GameSettingsManager.Instance.ColorblindModeEnabled;
                 }
-                if (Runtime.SaveDataService.Instance != null && Runtime.SaveDataService.Instance.Data != null && Runtime.SaveDataService.Instance.Data.settings != null)
+
+                if (Runtime.SaveDataService.HasInstance
+                    && Runtime.SaveDataService.Instance.Data != null
+                    && Runtime.SaveDataService.Instance.Data.settings != null)
                 {
                     return Runtime.SaveDataService.Instance.Data.settings.colorblindModeEnabled;
                 }
+
                 return PlayerPrefs.GetInt(PREFS_COLORBLIND_ENABLED, 0) == 1;
             }
         }

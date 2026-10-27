@@ -41,25 +41,92 @@ namespace LegoPuzzle.Editor
         private Vector2 scrollPos;
         private float previewCellSize = LevelGridRenderer.DEFAULT_CELL_SIZE;
 
-        [MenuItem("Tools/LEGO Level Editor")]
+        private static LevelData pendingLevel;
+
+        [MenuItem("Tools/LEGO Level Editor", false, 1)]
         public static void OpenWindow()
         {
-            var window = GetWindow<LevelEditorWindow>("LEGO Editor");
-            window.minSize = new Vector2(500, 700);
-            window.Show();
+            // Close a stuck/off-screen docked instance, then show a floating window on screen.
+            LevelEditorWindow[] open = Resources.FindObjectsOfTypeAll<LevelEditorWindow>();
+            for (int i = 0; i < open.Length; i++)
+            {
+                if (open[i] != null)
+                    open[i].Close();
+            }
+
+            var window = CreateInstance<LevelEditorWindow>();
+            window.titleContent = new GUIContent("LEGO Editor");
+            window.minSize = new Vector2(640f, 720f);
+            window.position = new Rect(80f, 60f, 980f, 820f);
+            window.ShowUtility();
+            window.Focus();
+        }
+
+        [MenuItem("LEGO/Level Editor", false, 1)]
+        public static void OpenWindowFromLegoMenu()
+        {
+            OpenWindow();
+        }
+
+        [UnityEditor.Callbacks.OnOpenAsset(1)]
+        public static bool OnOpenLevelAsset(int instanceID, int line)
+        {
+            var level = EditorUtility.InstanceIDToObject(instanceID) as LevelData;
+            if (level == null) return false;
+
+            pendingLevel = level;
+            OpenWindow();
+            return true;
+        }
+
+        private void OnEnable()
+        {
+            if (pendingLevel != null && IsValidLevelAsset(pendingLevel))
+                targetLevel = pendingLevel;
+            pendingLevel = null;
+            ResolveTargetLevel();
+        }
+
+        private void ResolveTargetLevel()
+        {
+            if (!IsValidLevelAsset(targetLevel))
+                targetLevel = null;
+
+            if (targetLevel == null && Selection.activeObject is LevelData selected && IsValidLevelAsset(selected))
+                targetLevel = selected;
+
+            if (targetLevel == null)
+            {
+                LevelData fromResources = AssetDatabase.LoadAssetAtPath<LevelData>($"{LevelsFolder}/Level_001.asset");
+                if (IsValidLevelAsset(fromResources))
+                    targetLevel = fromResources;
+            }
+
+            selectedPiece = null;
+        }
+
+        private static bool IsValidLevelAsset(LevelData level)
+        {
+            if (level == null) return false;
+            string path = AssetDatabase.GetAssetPath(level);
+            return !string.IsNullOrEmpty(path) && AssetDatabase.LoadAssetAtPath<LevelData>(path) != null;
         }
 
         private void OnGUI()
         {
+            if (!IsValidLevelAsset(targetLevel))
+                targetLevel = null;
+
             EditorGUILayout.Space(10);
             EditorGUILayout.LabelField("LEGO Puzzle Level Editor", EditorStyles.boldLabel);
 
-            // Вибір / Створення рівня
             DrawLevelHeader();
 
             if (targetLevel == null)
             {
-                EditorGUILayout.HelpBox("Оберіть існуючий LevelData або створіть новий для початку редагування.", MessageType.Info);
+                EditorGUILayout.HelpBox(
+                    "Оберіть LevelData з Assets/Resources/Levels або натисни «Новий рівень».",
+                    MessageType.Info);
                 return;
             }
 
@@ -76,7 +143,12 @@ namespace LegoPuzzle.Editor
         private void DrawLevelHeader()
         {
             EditorGUILayout.BeginHorizontal();
-            targetLevel = (LevelData)EditorGUILayout.ObjectField("Рівень (Asset)", targetLevel, typeof(LevelData), false);
+            LevelData picked = (LevelData)EditorGUILayout.ObjectField("Рівень (Asset)", targetLevel, typeof(LevelData), false);
+            if (picked != targetLevel)
+            {
+                targetLevel = IsValidLevelAsset(picked) ? picked : null;
+                selectedPiece = null;
+            }
 
             if (GUILayout.Button("Новий рівень", GUILayout.Width(100)))
             {
@@ -105,12 +177,15 @@ namespace LegoPuzzle.Editor
                 GUI.backgroundColor = new Color(1f, 0.85f, 0.4f);
                 if (GUILayout.Button("Скинути прогрес (на Рівень 1)", GUILayout.Height(24)))
                 {
-                    if (Runtime.SaveDataService.Instance != null && Runtime.SaveDataService.Instance.Data != null)
+                    if (Runtime.SaveDataService.HasInstance
+                        && Runtime.SaveDataService.Instance != null
+                        && Runtime.SaveDataService.Instance.Data != null)
                     {
                         Runtime.SaveDataService.Instance.Data.currentLevelIndex = 0;
                         Runtime.SaveDataService.Instance.Save();
                     }
                     PlayerPrefs.DeleteKey("LEGO_CurrentLevelIndex");
+                    PlayerPrefs.SetInt("LEGO_CurrentLevelIndex", 0);
                     PlayerPrefs.Save();
                     Debug.Log("<color=yellow>LevelEditor: Прогрес гри успішно скинуто на Рівень 1!</color>");
                 }
@@ -404,7 +479,9 @@ namespace LegoPuzzle.Editor
             previewCellSize = EditorGUILayout.Slider(previewCellSize, LevelGridRenderer.MIN_CELL_SIZE, LevelGridRenderer.MAX_CELL_SIZE, GUILayout.Width(140));
             EditorGUILayout.EndHorizontal();
 
-            float viewHeight = Mathf.Min(430f, (targetLevel.gridHeight + 1) * (previewCellSize + 3f) + 24f);
+            int gridW = Mathf.Clamp(targetLevel.gridWidth, 1, 24);
+            int gridH = Mathf.Clamp(targetLevel.gridHeight, 1, 24);
+            float viewHeight = Mathf.Min(430f, (gridH + 1) * (previewCellSize + 3f) + 24f);
             scrollPos = EditorGUILayout.BeginScrollView(scrollPos, GUILayout.Height(viewHeight));
 
             // Малюємо сітку знизу вгору (як у системі координат Y)

@@ -82,7 +82,8 @@ namespace LegoPuzzle.Editor
 
         private static void DrawPieceCell(Rect outerRect, Rect innerRect, LegoPieceData piece, int x, int y, float size)
         {
-            Color pieceColor = piece.GetColor();
+            // Force classic palette in editor — never touch SaveDataService/settings mid-OnGUI.
+            Color pieceColor = piece.GetColor(false);
 
             // Чітка темніша рамка навколо деталі LEGO
             Color pieceBorder = Color.Lerp(pieceColor, Color.black, 0.38f);
@@ -232,7 +233,7 @@ namespace LegoPuzzle.Editor
 
                 case CellType.ExitGate:
                 {
-                    Color gateColor = cell.GetEffectiveColor();
+                    Color gateColor = cell.GetEffectiveColor(false);
 
                     // Рамка воріт
                     Color gateBorder = Color.Lerp(gateColor, Color.black, 0.35f);
@@ -284,7 +285,7 @@ namespace LegoPuzzle.Editor
                 {
                     // Фон — вільне поле
                     EditorGUI.DrawRect(innerRect, WalkableBaseColor);
-                    Color gateColor = cell.GetEffectiveColor();
+                    Color gateColor = cell.GetEffectiveColor(false);
 
                     // 0 => Top (▀), 1 => Bottom (▄), 2 => Left (▌), 3 => Right (▐)
                     Rect gateHalf = cell.gateAlignment switch

@@ -40,7 +40,7 @@ namespace LegoPuzzle.Editor
         private LegoLevelGenerator.DifficultyTier batchFixedTier = LegoLevelGenerator.DifficultyTier.Medium;
         private bool batchOverwrite = true;
         private bool batchAutoPopulateLoader = true;
-        private string batchSavePath = "Assets/Levels";
+        private string batchSavePath = "Assets/Resources/Levels";
 
         // Фільтри механік для пакетної генерації
         private bool batchAllowSliders = true;
@@ -635,7 +635,7 @@ namespace LegoPuzzle.Editor
             }
             else
             {
-                EditorUtility.DisplayDialog("Тестування рівня", $"Рівень {currentSettings.levelIndex} збережено в Assets/Levels. Відкрийте сцену Game і запустіть Play Mode.", "ОК");
+                EditorUtility.DisplayDialog("Тестування рівня", $"Рівень {currentSettings.levelIndex} збережено в Assets/Resources/Levels. Відкрийте сцену Game і запустіть Play Mode.", "ОК");
             }
         }
 
@@ -648,14 +648,12 @@ namespace LegoPuzzle.Editor
             currentResult.levelData.levelIndex = targetIndex;
             currentResult.levelData.levelTitle = currentSettings.levelTitle;
 
-            if (!Directory.Exists("Assets/Levels"))
-            {
-                Directory.CreateDirectory("Assets/Levels");
-            }
+            const string levelsFolder = "Assets/Resources/Levels";
+            EnsureGeneratorLevelsFolder(levelsFolder);
 
             // Шукаємо, чи існує вже файл під цей номер: Level_014.asset (3 знаки) або Level_14.asset (2 знаки)
-            string path3 = Path.Combine("Assets/Levels", $"Level_{targetIndex:D3}.asset").Replace('\\', '/');
-            string pathRaw = Path.Combine("Assets/Levels", $"Level_{targetIndex}.asset").Replace('\\', '/');
+            string path3 = Path.Combine(levelsFolder, $"Level_{targetIndex:D3}.asset").Replace('\\', '/');
+            string pathRaw = Path.Combine(levelsFolder, $"Level_{targetIndex}.asset").Replace('\\', '/');
 
             string path = path3;
             if (File.Exists(pathRaw) && !File.Exists(path3))
@@ -705,7 +703,7 @@ namespace LegoPuzzle.Editor
             EditorGUILayout.BeginVertical(EditorStyles.helpBox);
             EditorGUILayout.LabelField("Пакетна генерація серії рівнів", EditorStyles.boldLabel);
             EditorGUILayout.LabelField(
-                "Генерує великий пакет розв'язуваних рівнів із контролем складності та зберігає в Assets/Levels.",
+                "Генерує великий пакет розв'язуваних рівнів із контролем складності та зберігає в Assets/Resources/Levels.",
                 EditorStyles.miniLabel
             );
             EditorGUILayout.EndVertical();
@@ -905,22 +903,48 @@ namespace LegoPuzzle.Editor
             );
         }
 
+        private static void EnsureGeneratorLevelsFolder(string levelsFolder)
+        {
+            if (string.IsNullOrEmpty(levelsFolder)) return;
+
+            if (!AssetDatabase.IsValidFolder("Assets/Resources"))
+                AssetDatabase.CreateFolder("Assets", "Resources");
+
+            if (!AssetDatabase.IsValidFolder(levelsFolder))
+            {
+                string parent = Path.GetDirectoryName(levelsFolder)?.Replace('\\', '/');
+                string name = Path.GetFileName(levelsFolder);
+                if (!string.IsNullOrEmpty(parent) && !string.IsNullOrEmpty(name) && AssetDatabase.IsValidFolder(parent))
+                    AssetDatabase.CreateFolder(parent, name);
+                else if (!Directory.Exists(levelsFolder))
+                    Directory.CreateDirectory(levelsFolder);
+            }
+
+            if (!Directory.Exists(levelsFolder))
+                Directory.CreateDirectory(levelsFolder);
+        }
+
         private void PopulateSceneLevelLoader()
         {
             LevelLoader loader = FindFirstObjectByType<LevelLoader>();
             if (loader == null) return;
 
-            string[] guids = AssetDatabase.FindAssets("t:LevelData");
+            string[] guids = AssetDatabase.FindAssets("t:LevelData", new[] { "Assets/Resources/Levels" });
+            if (guids == null || guids.Length == 0)
+                guids = AssetDatabase.FindAssets("t:LevelData");
+
             var list = new List<LevelData>();
+            var seenIndexes = new HashSet<int>();
 
             foreach (var guid in guids)
             {
                 string path = AssetDatabase.GUIDToAssetPath(guid);
                 var level = AssetDatabase.LoadAssetAtPath<LevelData>(path);
-                if (level != null)
-                {
-                    list.Add(level);
-                }
+                if (level == null || seenIndexes.Contains(level.levelIndex))
+                    continue;
+
+                seenIndexes.Add(level.levelIndex);
+                list.Add(level);
             }
 
             list.Sort((a, b) => a.levelIndex.CompareTo(b.levelIndex));

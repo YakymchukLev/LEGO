@@ -51,6 +51,7 @@ namespace LegoPuzzle.Runtime
         public int[] lottoHeaderNumbers;
         public int[] lottoSlotNumbers;
         public bool[] lottoSlotsOpen;
+        public int lottoClaimedPrizeMask;
 
         // Налаштування гри
         public SettingsSaveData settings = new SettingsSaveData();

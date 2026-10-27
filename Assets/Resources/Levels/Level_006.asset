@@ -14,7 +14,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   levelIndex: 6
   levelTitle: Level 6
-  timeLimitSeconds: 20
+  timeLimitSeconds: 60
   movesLimit: 0
   gridWidth: 9
   gridHeight: 9
@@ -510,47 +510,59 @@ MonoBehaviour:
     shape: {fileID: 11400000, guid: 21e146af8f355f84294a1505e357abe1, type: 2}
     originPosition: {x: 4, y: 4}
     rotationSteps: 1
+    flipHorizontal: 0
     colorType: 0
     customColor: {r: 1, g: 0, b: 0, a: 1}
     moveRestriction: 0
     isRequiredForWin: 1
+    freezeCount: 0
   - pieceId: Piece_2
     shape: {fileID: 11400000, guid: 9fc706dc773b47e4288a23054b569d3c, type: 2}
     originPosition: {x: 5, y: 3}
     rotationSteps: 2
+    flipHorizontal: 0
     colorType: 1
     customColor: {r: 1, g: 0, b: 0, a: 1}
     moveRestriction: 0
     isRequiredForWin: 1
+    freezeCount: 0
   - pieceId: Piece_3
     shape: {fileID: 11400000, guid: c923fc20688572c438d16ff1bbc3a9e6, type: 2}
     originPosition: {x: 1, y: 6}
     rotationSteps: 2
+    flipHorizontal: 0
     colorType: 4
     customColor: {r: 1, g: 0, b: 0, a: 1}
     moveRestriction: 0
     isRequiredForWin: 1
+    freezeCount: 0
   - pieceId: Piece_4
     shape: {fileID: 11400000, guid: c923fc20688572c438d16ff1bbc3a9e6, type: 2}
     originPosition: {x: 6, y: 6}
     rotationSteps: 2
+    flipHorizontal: 0
     colorType: 3
     customColor: {r: 1, g: 0, b: 0, a: 1}
     moveRestriction: 0
     isRequiredForWin: 1
+    freezeCount: 0
   - pieceId: Piece_5
     shape: {fileID: 11400000, guid: c923fc20688572c438d16ff1bbc3a9e6, type: 2}
     originPosition: {x: 1, y: 1}
     rotationSteps: 2
+    flipHorizontal: 0
     colorType: 6
     customColor: {r: 1, g: 0, b: 0, a: 1}
     moveRestriction: 0
     isRequiredForWin: 1
+    freezeCount: 0
   - pieceId: Piece_6
     shape: {fileID: 11400000, guid: c923fc20688572c438d16ff1bbc3a9e6, type: 2}
     originPosition: {x: 6, y: 1}
     rotationSteps: 2
+    flipHorizontal: 0
     colorType: 2
     customColor: {r: 1, g: 0, b: 0, a: 1}
     moveRestriction: 0
     isRequiredForWin: 1
+    freezeCount: 0

@@ -67,6 +67,7 @@ namespace LegoPuzzle.Runtime
         private Vector2 boardRestPosition;
         private bool boardPoseCached;
         private Coroutine panelRoutine;
+        private int claimedPrizeMask;
         private GameObject payPanel;
         private Image payGemIcon;
         private TMP_Text payGemCostLabel;
@@ -75,6 +76,10 @@ namespace LegoPuzzle.Runtime
         private int pendingSlot = -1;
         private static Sprite gemSprite;
         private UIConfettiEffect matchConfetti;
+        private TMP_Text[] prizeMatchLabels;
+        private Color[] prizeMatchLabelRestColors;
+        // Soft mint green — not neon/toxic.
+        private static readonly Color PrizeMatchLabelColor = new Color(0.55f, 0.82f, 0.58f, 1f);
 
         private const float OpenDuration = 0.46f;
         private const float CloseDuration = 0.24f;
@@ -344,7 +349,8 @@ namespace LegoPuzzle.Runtime
                     jelly = -Mathf.Sin(impactP * Mathf.PI * 2f) * (JellyIntensity * 0.85f) * decay;
                 }
 
-                boardRect.localScale = new Vector3(baseScale * (1f - jelly), baseScale * (1f + jelly), 1f);
+                Vector3 scale = new Vector3(baseScale * (1f - jelly), baseScale * (1f + jelly), 1f);
+                boardRect.localScale = scale;
                 if (panelGroup != null)
                     panelGroup.alpha = Mathf.Clamp01(t * 2.8f);
 
@@ -465,7 +471,12 @@ namespace LegoPuzzle.Runtime
             slotRoot.localScale = new Vector3(0f, 1f, 1f);
             ShowOpenedSlot(index, number);
             if (NumberIsInHeader(number))
+            {
                 PlayMatchConfetti();
+                TryAwardMatchPrizes();
+            }
+
+            RefreshPrizeMatchLabels();
 
             elapsed = 0f;
             while (elapsed < halfDuration)
@@ -609,6 +620,8 @@ namespace LegoPuzzle.Runtime
 
             for (int i = 0; i < slotOpen.Length; i++)
                 CloseSlot(i);
+
+            RefreshPrizeMatchLabels();
         }
 
         private void CloseSlot(int index)
@@ -756,6 +769,7 @@ namespace LegoPuzzle.Runtime
             headerNumbers = (int[])data.lottoHeaderNumbers.Clone();
             slotNumbers = (int[])data.lottoSlotNumbers.Clone();
             slotOpen = (bool[])data.lottoSlotsOpen.Clone();
+            claimedPrizeMask = data.lottoClaimedPrizeMask;
             ApplyHeaderLabels();
             for (int i = 0; i < slotOpen.Length; i++)
             {
@@ -765,12 +779,14 @@ namespace LegoPuzzle.Runtime
                     CloseSlot(i);
             }
 
+            RefreshPrizeMatchLabels();
             SaveLottoState();
         }
 
         private void BeginNewRound()
         {
             RollHeaderNumbers();
+            claimedPrizeMask = 0;
             roundLocalDate = LocalTodayKey();
             roundEndsUtcTicks = refreshEveryThirtySeconds
                 ? System.DateTime.UtcNow.AddSeconds(ShortRoundSeconds).Ticks
@@ -826,6 +842,7 @@ namespace LegoPuzzle.Runtime
             data.lottoHeaderNumbers = (int[])headerNumbers.Clone();
             data.lottoSlotNumbers = (int[])slotNumbers.Clone();
             data.lottoSlotsOpen = (bool[])slotOpen.Clone();
+            data.lottoClaimedPrizeMask = claimedPrizeMask;
             SaveDataService.Instance.Save();
         }
 
@@ -883,8 +900,21 @@ namespace LegoPuzzle.Runtime
 
                 lottoButton = button;
                 lottoButton.onClick.AddListener(OnLottoButton);
+                EnsureLottoButtonJuice(lottoButton.gameObject);
                 return;
             }
+        }
+
+        private static void EnsureLottoButtonJuice(GameObject buttonObj)
+        {
+            if (buttonObj == null) return;
+
+            // Press jelly only — no idle breathing/shine.
+            UIButtonShinePulse shine = buttonObj.GetComponent<UIButtonShinePulse>();
+            if (shine != null)
+                Destroy(shine);
+
+            UIButtonPressEffect.AttachHorizontalJelly(buttonObj);
         }
 
         private void UnbindLottoButton()
@@ -935,7 +965,8 @@ namespace LegoPuzzle.Runtime
             boardRect.anchorMin = new Vector2(0.5f, 0.5f);
             boardRect.anchorMax = new Vector2(0.5f, 0.5f);
             boardRect.pivot = new Vector2(0.5f, 0.5f);
-            boardRect.sizeDelta = new Vector2(760f, 980f);
+            boardRect.anchoredPosition = new Vector2(160f, 0f);
+            boardRect.sizeDelta = new Vector2(700f, 980f);
 
             var boardImage = board.AddComponent<Image>();
             boardImage.sprite = sprite;
@@ -1110,6 +1141,156 @@ namespace LegoPuzzle.Runtime
             timerLabel = label;
         }
 
+        private int CountOpenMatches()
+        {
+            if (slotOpen == null || slotNumbers == null) return 0;
+
+            int matches = 0;
+            for (int i = 0; i < slotOpen.Length; i++)
+            {
+                if (!slotOpen[i] || i >= slotNumbers.Length) continue;
+                if (NumberIsInHeader(slotNumbers[i]))
+                    matches++;
+            }
+
+            return matches;
+        }
+
+        private void CachePrizeMatchLabels()
+        {
+            if (prizeMatchLabels != null || visualRoot == null) return;
+
+            Transform panel = visualRoot.transform.Find("LottoPrizesPanel");
+            if (panel == null) return;
+
+            string[] rows = { "Match2", "Match3", "Match4", "Match5", "Match6" };
+            prizeMatchLabels = new TMP_Text[rows.Length];
+            prizeMatchLabelRestColors = new Color[rows.Length];
+
+            for (int i = 0; i < rows.Length; i++)
+            {
+                Transform label = panel.Find(rows[i] + "/Label");
+                if (label == null) continue;
+
+                var text = label.GetComponent<TMP_Text>();
+                if (text == null) continue;
+
+                prizeMatchLabels[i] = text;
+                prizeMatchLabelRestColors[i] = text.color;
+            }
+        }
+
+        private void RefreshPrizeMatchLabels()
+        {
+            CachePrizeMatchLabels();
+            if (prizeMatchLabels == null) return;
+
+            int matches = CountOpenMatches();
+            for (int i = 0; i < prizeMatchLabels.Length; i++)
+            {
+                if (prizeMatchLabels[i] == null) continue;
+
+                int tier = i + 2;
+                prizeMatchLabels[i].color = matches >= tier
+                    ? PrizeMatchLabelColor
+                    : prizeMatchLabelRestColors[i];
+            }
+        }
+
+        private void TryAwardMatchPrizes()
+        {
+            int matches = CountOpenMatches();
+            bool awarded = false;
+
+            if (matches >= 2 && ClaimPrizeTier(2))
+            {
+                GrantCoins(200);
+                awarded = true;
+            }
+
+            if (matches >= 3 && ClaimPrizeTier(3))
+            {
+                GrantFreezeCharges(3);
+                awarded = true;
+            }
+
+            if (matches >= 4 && ClaimPrizeTier(4))
+            {
+                GrantHammerCharges(3);
+                awarded = true;
+            }
+
+            if (matches >= 5 && ClaimPrizeTier(5))
+            {
+                GrantCoins(1000);
+                awarded = true;
+            }
+
+            if (matches >= 6 && ClaimPrizeTier(6))
+            {
+                GrantFreezeCharges(5);
+                GrantHammerCharges(5);
+                awarded = true;
+            }
+
+            if (awarded)
+                SaveLottoState();
+        }
+
+        private bool ClaimPrizeTier(int matchCount)
+        {
+            int bit = 1 << matchCount;
+            if ((claimedPrizeMask & bit) != 0) return false;
+            claimedPrizeMask |= bit;
+            return true;
+        }
+
+        private static void GrantCoins(int amount)
+        {
+            if (amount <= 0) return;
+            if (CoinManager.HasInstance)
+                CoinManager.Instance.AddCoins(amount);
+            else if (SaveDataService.HasInstance && SaveDataService.Instance.Data != null)
+            {
+                SaveDataService.Instance.Data.coins += amount;
+                SaveDataService.Instance.Save();
+            }
+        }
+
+        private static void GrantHammerCharges(int amount)
+        {
+            if (amount <= 0) return;
+            HammerBooster hammer = FindAnyObjectByType<HammerBooster>(FindObjectsInactive.Include);
+            if (hammer != null)
+            {
+                hammer.AddCharges(amount);
+                return;
+            }
+
+            if (SaveDataService.HasInstance && SaveDataService.Instance.Data != null)
+            {
+                SaveDataService.Instance.Data.hammerCharges += amount;
+                SaveDataService.Instance.Save();
+            }
+        }
+
+        private static void GrantFreezeCharges(int amount)
+        {
+            if (amount <= 0) return;
+            TimeFreezeBooster freeze = FindAnyObjectByType<TimeFreezeBooster>(FindObjectsInactive.Include);
+            if (freeze != null)
+            {
+                freeze.AddCharges(amount);
+                return;
+            }
+
+            if (SaveDataService.HasInstance && SaveDataService.Instance.Data != null)
+            {
+                SaveDataService.Instance.Data.freezeCharges += amount;
+                SaveDataService.Instance.Save();
+            }
+        }
+
         private void CreateCloseButton(Transform parent, Sprite sprite)
         {
             var closeGo = CreateUiObject("LottoCloseButton", parent);
@@ -1175,11 +1356,25 @@ namespace LegoPuzzle.Runtime
             for (int i = 0; i < texts.Length; i++)
             {
                 if (texts[i] == null || texts[i].font == font) continue;
+                if (IsUnderPrizesPanel(texts[i].transform))
+                    continue;
                 texts[i].font = font;
                 changed = true;
             }
 
             return changed;
+        }
+
+        private static bool IsUnderPrizesPanel(Transform t)
+        {
+            while (t != null)
+            {
+                if (t.name == "LottoPrizesPanel")
+                    return true;
+                t = t.parent;
+            }
+
+            return false;
         }
 
         public bool ApplySlotSprites()
@@ -1320,6 +1515,10 @@ namespace LegoPuzzle.Runtime
                     button.onClick.AddListener(HideBoard);
                 }
             }
+
+            prizeMatchLabels = null;
+            prizeMatchLabelRestColors = null;
+            RefreshPrizeMatchLabels();
         }
 
         private void WireSlotClick(GameObject slot, Image frame, int index)

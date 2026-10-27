@@ -510,6 +510,7 @@ MonoBehaviour:
     shape: {fileID: 11400000, guid: b36e75a92de921944b081e999ab893ee, type: 2}
     originPosition: {x: 2, y: 2}
     rotationSteps: 1
+    flipHorizontal: 0
     colorType: 0
     customColor: {r: 1, g: 0, b: 0, a: 1}
     moveRestriction: 0
@@ -519,6 +520,7 @@ MonoBehaviour:
     shape: {fileID: 11400000, guid: 9fc706dc773b47e4288a23054b569d3c, type: 2}
     originPosition: {x: 2, y: 5}
     rotationSteps: 3
+    flipHorizontal: 0
     colorType: 1
     customColor: {r: 1, g: 0, b: 0, a: 1}
     moveRestriction: 0
@@ -528,6 +530,7 @@ MonoBehaviour:
     shape: {fileID: 11400000, guid: 209b5544d92aeca469fd6a76d79ccb61, type: 2}
     originPosition: {x: 1, y: 2}
     rotationSteps: 1
+    flipHorizontal: 0
     colorType: 2
     customColor: {r: 1, g: 0, b: 0, a: 1}
     moveRestriction: 0
@@ -537,6 +540,7 @@ MonoBehaviour:
     shape: {fileID: 11400000, guid: b36e75a92de921944b081e999ab893ee, type: 2}
     originPosition: {x: 7, y: 5}
     rotationSteps: 2
+    flipHorizontal: 0
     colorType: 3
     customColor: {r: 1, g: 0, b: 0, a: 1}
     moveRestriction: 0
@@ -546,6 +550,7 @@ MonoBehaviour:
     shape: {fileID: 11400000, guid: 209b5544d92aeca469fd6a76d79ccb61, type: 2}
     originPosition: {x: 2, y: 6}
     rotationSteps: 1
+    flipHorizontal: 0
     colorType: 4
     customColor: {r: 1, g: 0, b: 0, a: 1}
     moveRestriction: 0
@@ -555,6 +560,7 @@ MonoBehaviour:
     shape: {fileID: 11400000, guid: b36e75a92de921944b081e999ab893ee, type: 2}
     originPosition: {x: 5, y: 5}
     rotationSteps: 2
+    flipHorizontal: 0
     colorType: 5
     customColor: {r: 1, g: 0, b: 0, a: 1}
     moveRestriction: 0
@@ -564,6 +570,7 @@ MonoBehaviour:
     shape: {fileID: 11400000, guid: b36e75a92de921944b081e999ab893ee, type: 2}
     originPosition: {x: 5, y: 1}
     rotationSteps: 1
+    flipHorizontal: 0
     colorType: 7
     customColor: {r: 1, g: 0, b: 0, a: 1}
     moveRestriction: 0
@@ -573,6 +580,7 @@ MonoBehaviour:
     shape: {fileID: 11400000, guid: 209b5544d92aeca469fd6a76d79ccb61, type: 2}
     originPosition: {x: 6, y: 2}
     rotationSteps: 3
+    flipHorizontal: 0
     colorType: 0
     customColor: {r: 1, g: 0, b: 0, a: 1}
     moveRestriction: 0

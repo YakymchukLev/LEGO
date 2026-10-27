@@ -706,10 +706,11 @@ namespace LegoPuzzle.Runtime
                 {
                     btn.onClick.RemoveListener(Open);
                     btn.onClick.AddListener(Open);
-                    if (btn.GetComponent<UIButtonPressEffect>() == null)
-                    {
-                        UIButtonPressEffect.AttachTo(btn.gameObject);
-                    }
+                    UIButtonShinePulse shine = btn.GetComponent<UIButtonShinePulse>();
+                    if (shine != null)
+                        Destroy(shine);
+
+                    UIButtonPressEffect.AttachHorizontalJelly(btn.gameObject);
                 }
             }
         }
