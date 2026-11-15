@@ -734,25 +734,35 @@ namespace LegoPuzzle.Runtime
         }
 
         /// <summary>
-        /// Resets level progress back to Level 1.
+        /// Fully clears all saves (progress, currencies, boosters, daily/lotto, tutorials, settings)
+        /// and reloads runtime managers from the fresh default save.
         /// </summary>
         public void ResetLevelProgress()
         {
-            if (SaveDataService.Instance != null && SaveDataService.Instance.Data != null)
+            if (SaveDataService.Instance != null)
             {
-                SaveDataService.Instance.Data.currentLevelIndex = 0;
-                SaveDataService.Instance.Save();
+                SaveDataService.Instance.ResetAllData();
             }
-            PlayerPrefs.DeleteKey(PREFS_LEVEL_INDEX);
-            PlayerPrefs.Save();
-            Debug.Log("<color=yellow><b>[GameSettingsManager]</b> Level progress reset to Level 1!</color>");
+            else
+            {
+                PlayerPrefs.DeleteKey(PREFS_LEVEL_INDEX);
+                PlayerPrefs.Save();
+            }
 
-            // If LevelLoader is present in the scene, inform it
+            LoadSettings();
+
+            if (CoinManager.HasInstance)
+                CoinManager.Instance.LoadCoins();
+            if (GemManager.HasInstance)
+                GemManager.Instance.LoadGems();
+            if (HeartManager.Instance != null)
+                HeartManager.Instance.ReloadFromSave();
+
             LevelLoader loader = FindAnyObjectByType<LevelLoader>();
             if (loader != null)
-            {
                 loader.ResetProgress();
-            }
+
+            Debug.Log("<color=yellow><b>[GameSettingsManager]</b> All saves fully cleared!</color>");
         }
 
         #region Dynamic Button Audio Tracking

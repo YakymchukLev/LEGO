@@ -178,6 +178,12 @@ namespace LegoPuzzle.Runtime
         /// </summary>
         public void OnLottoButton()
         {
+            if (!LottoButton.IsLottoUnlocked())
+            {
+                LottoButton.ShowLockedFloatingHint();
+                return;
+            }
+
             EnsureVisual();
 
             if (!boardVisible)
@@ -191,12 +197,23 @@ namespace LegoPuzzle.Runtime
 
         public void ShowBoard()
         {
+            if (!LottoButton.IsLottoUnlocked())
+            {
+                LottoButton.ShowLockedFloatingHint();
+                return;
+            }
+
+            // Host must be active before StartCoroutine (scene may leave LottoBoard disabled).
+            if (!gameObject.activeSelf)
+                gameObject.SetActive(true);
+
             EnsureVisual();
             CatchRoundExpiry();
             if (headerNumbers == null)
                 BeginNewRound();
 
-            visualRoot.SetActive(true);
+            if (visualRoot != null)
+                visualRoot.SetActive(true);
             boardVisible = true;
             if (!Application.isPlaying)
             {
@@ -899,7 +916,12 @@ namespace LegoPuzzle.Runtime
                 if (button == null) continue;
 
                 lottoButton = button;
-                lottoButton.onClick.AddListener(OnLottoButton);
+                // LottoButton owns click + level-20 lock gate.
+                lottoButton.onClick.RemoveListener(OnLottoButton);
+                LottoButton lotto = candidate.GetComponent<LottoButton>();
+                if (lotto == null)
+                    lotto = candidate.gameObject.AddComponent<LottoButton>();
+                lotto.RefreshLockVisual();
                 EnsureLottoButtonJuice(lottoButton.gameObject);
                 return;
             }
@@ -912,7 +934,12 @@ namespace LegoPuzzle.Runtime
             // Press jelly only — no idle breathing/shine.
             UIButtonShinePulse shine = buttonObj.GetComponent<UIButtonShinePulse>();
             if (shine != null)
-                Destroy(shine);
+            {
+                if (Application.isPlaying)
+                    Destroy(shine);
+                else
+                    DestroyImmediate(shine);
+            }
 
             UIButtonPressEffect.AttachHorizontalJelly(buttonObj);
         }
@@ -959,6 +986,7 @@ namespace LegoPuzzle.Runtime
             var backdrop = visualRoot.AddComponent<Image>();
             backdrop.color = new Color(0.04f, 0.06f, 0.18f, 0.94f);
             backdrop.raycastTarget = true;
+            WireBackdropClose(visualRoot, backdrop);
 
             var board = CreateUiObject("Board", visualRoot.transform);
             RectTransform boardRect = board.GetComponent<RectTransform>();
@@ -1516,9 +1544,28 @@ namespace LegoPuzzle.Runtime
                 }
             }
 
+            var visualImage = visualRoot.GetComponent<Image>();
+            if (visualImage != null)
+                WireBackdropClose(visualRoot, visualImage);
+
             prizeMatchLabels = null;
             prizeMatchLabelRestColors = null;
             RefreshPrizeMatchLabels();
+        }
+
+        private void WireBackdropClose(GameObject root, Image backdropImage)
+        {
+            if (root == null || backdropImage == null) return;
+
+            backdropImage.raycastTarget = true;
+            var backdropButton = root.GetComponent<Button>();
+            if (backdropButton == null)
+                backdropButton = root.AddComponent<Button>();
+
+            backdropButton.targetGraphic = backdropImage;
+            backdropButton.transition = Selectable.Transition.None;
+            backdropButton.onClick.RemoveListener(HideBoard);
+            backdropButton.onClick.AddListener(HideBoard);
         }
 
         private void WireSlotClick(GameObject slot, Image frame, int index)

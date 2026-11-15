@@ -38,6 +38,18 @@ namespace LegoPuzzle.Data
         [Tooltip("Початковий лічильник заморозки (0 = розморожений блок, >0 = заморожений блок, не може рухатись поки не знищено вказану кількість інших блоків)")]
         public int freezeCount = 0;
 
+        [Tooltip("Подвійний блок: верхній шар знищується першим, нижній стає звичайним блоком іншого кольору")]
+        public bool isDoubleBlock = false;
+
+        [Tooltip("Колір нижнього шару подвійного блоку (видно у вирізі по центру)")]
+        public BlockColorType innerColorType = BlockColorType.Blue;
+
+        [Tooltip("Користувацький колір нижнього шару (якщо Inner = Custom)")]
+        public Color innerCustomColor = Color.blue;
+
+        [Tooltip("Рухомий бар'єр: колір як у стін, не виводиться і не потрібен для перемоги. Може бути замороженим і з обмеженням напрямку руху.")]
+        public bool isMovableBarrier = false;
+
         public bool IsFrozen => freezeCount > 0;
 
         /// <summary>
@@ -85,6 +97,16 @@ namespace LegoPuzzle.Data
         public Color GetColor(bool forceColorblind)
         {
             return ColorblindPalette.GetPieceColor(colorType, customColor, forceColorblind);
+        }
+
+        public Color GetInnerColor()
+        {
+            return ColorblindPalette.GetPieceColor(innerColorType, innerCustomColor);
+        }
+
+        public Color GetInnerColor(bool forceColorblind)
+        {
+            return ColorblindPalette.GetPieceColor(innerColorType, innerCustomColor, forceColorblind);
         }
     }
 }

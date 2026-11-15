@@ -94,6 +94,7 @@ namespace LegoPuzzle.Runtime
         private Vector2[] rowOriginalPositions;
         private bool hasCachedPositions = false;
         private bool isAnimating = false;
+        private bool openRequested;
 
         public bool IsOpen => gameObject.activeSelf && (canvasGroup == null || canvasGroup.alpha > 0.05f);
         public bool IsAnimating => isAnimating;
@@ -104,11 +105,8 @@ namespace LegoPuzzle.Runtime
             EnsurePositionsCached();
             EnsureUIHierarchy();
             BindButtonListeners();
-
-            if (Application.isPlaying)
-            {
-                gameObject.SetActive(false);
-            }
+            // Never SetActive(false) in Awake — if the panel starts inactive, Awake runs during Open()
+            // and would deactivate again before StartCoroutine.
         }
 
         private void OnEnable()
@@ -151,6 +149,11 @@ namespace LegoPuzzle.Runtime
             EnsureUIHierarchy();
             BindButtonListeners();
             RefreshAllToggleStates(false);
+
+            // Scene left the panel active for editing — hide once at boot unless Open already ran.
+            // Never do this in Awake: inactive panels run Awake during Open and would block coroutines.
+            if (Application.isPlaying && !openRequested && gameObject.activeSelf)
+                gameObject.SetActive(false);
         }
 
         private void OnValidate()
@@ -360,7 +363,9 @@ namespace LegoPuzzle.Runtime
         {
             if (IsOpen && isAnimating) return;
 
-            gameObject.SetActive(true);
+            openRequested = true;
+            if (!gameObject.activeSelf)
+                gameObject.SetActive(true);
             EnsurePositionsCached();
             RefreshAllToggleStates(false);
 
@@ -914,6 +919,10 @@ namespace LegoPuzzle.Runtime
                 GameSettingsManager.Instance.PlayClickSound();
                 GameSettingsManager.Instance.ResetLevelProgress();
             }
+            else if (SaveDataService.HasInstance)
+            {
+                SaveDataService.Instance.ResetAllData();
+            }
 
             if (confirmResetBtn != null)
             {
@@ -925,7 +934,40 @@ namespace LegoPuzzle.Runtime
                 confirmationCard.SetActive(false);
             }
 
-            ShowToast("Progress reset to Level 1!");
+            RefreshMenuAfterFullReset();
+            ShowToast("All progress and saves cleared!");
+        }
+
+        private void RefreshMenuAfterFullReset()
+        {
+            RefreshAllToggleStates(false);
+
+            var coinsUi = FindAnyObjectByType<MenuCoinsUI>(FindObjectsInactive.Include);
+            if (coinsUi != null) coinsUi.UpdateUI(false);
+
+            var gemsUi = FindAnyObjectByType<MenuGemsUI>(FindObjectsInactive.Include);
+            if (gemsUi != null) gemsUi.UpdateUI(false);
+
+            var heartsUi = FindAnyObjectByType<MenuHeartsUI>(FindObjectsInactive.Include);
+            if (heartsUi != null) heartsUi.UpdateUI();
+
+            var daily = FindAnyObjectByType<DailyRewardsButton>(FindObjectsInactive.Include);
+            if (daily != null) daily.RefreshLockVisual();
+
+            var slots = FindAnyObjectByType<SlotsButton>(FindObjectsInactive.Include);
+            if (slots != null) slots.RefreshLockVisual();
+
+            var lotto = FindAnyObjectByType<LottoButton>(FindObjectsInactive.Include);
+            if (lotto != null) lotto.RefreshLockVisual();
+
+            var freeze = FindAnyObjectByType<TimeFreezeBooster>(FindObjectsInactive.Include);
+            if (freeze != null) freeze.RefreshFromSaveData();
+
+            var hint = FindAnyObjectByType<HintBooster>(FindObjectsInactive.Include);
+            if (hint != null) hint.RefreshFromSaveData();
+
+            var hammer = FindAnyObjectByType<HammerBooster>(FindObjectsInactive.Include);
+            if (hammer != null) hammer.RefreshFromSaveData();
         }
 
         private void ShowToast(string message)

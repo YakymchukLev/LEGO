@@ -115,6 +115,16 @@ namespace LegoPuzzle.Runtime
             }
         }
 
+        /// <summary>
+        /// Reloads hearts from the current save (e.g. after Reset All Progress).
+        /// </summary>
+        public void ReloadFromSave()
+        {
+            LoadState();
+            OnHeartsChanged?.Invoke(CurrentHearts, maxHearts);
+            OnTimerTick?.Invoke(GetRemainingRecoverySeconds());
+        }
+
         private void SaveState()
         {
             if (SaveDataService.Instance != null && SaveDataService.Instance.Data != null)

@@ -192,6 +192,7 @@ namespace LegoPuzzle.Runtime
         {
             exitDirection = ExitDirection.Up;
             if (piece == null || piece.PieceData == null) return false;
+            if (piece.PieceData.isMovableBarrier) return false;
             if (piece.PieceData.moveRestriction == MoveRestriction.Locked) return false;
             if (piece.IsFrozen) return false;
 

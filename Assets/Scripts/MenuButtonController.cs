@@ -28,22 +28,28 @@ public class MenuButtonController : MonoBehaviour
         return PlayerPrefs.GetInt(PREFS_LEVEL_INDEX, 0);
     }
 
-    [ContextMenu("Reset saved progress (to Level 1)")]
+    [ContextMenu("Reset all saves (full wipe)")]
     public void ResetSavedLevelProgress()
     {
-        if (SaveDataService.Instance != null && SaveDataService.Instance.Data != null)
+        if (SaveDataService.Instance != null)
+            SaveDataService.Instance.ResetAllData();
+        else
         {
-            SaveDataService.Instance.Data.currentLevelIndex = 0;
-            SaveDataService.Instance.Save();
+            PlayerPrefs.DeleteKey(PREFS_LEVEL_INDEX);
+            PlayerPrefs.Save();
         }
-        PlayerPrefs.DeleteKey(PREFS_LEVEL_INDEX);
-        PlayerPrefs.Save();
-        Debug.Log("<color=yellow>MenuButtonController: Progress reset! Next game will start from Level 1.</color>");
+
+        if (CoinManager.HasInstance) CoinManager.Instance.LoadCoins();
+        if (GemManager.HasInstance) GemManager.Instance.LoadGems();
+        if (HeartManager.Instance != null) HeartManager.Instance.ReloadFromSave();
+
+        Debug.Log("<color=yellow>MenuButtonController: All saves fully cleared!</color>");
     }
 
     private void Start()
     {
         SetupBottomNavigationJellyButtons();
+        MenuFeatureUnlockTutorialManager.EnsureOn(gameObject);
     }
 
     /// <summary>

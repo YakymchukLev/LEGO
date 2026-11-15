@@ -17,6 +17,10 @@ namespace LegoPuzzle.Runtime
         public bool IsExiting => isExiting;
         public int CurrentFreezeCount { get; private set; }
         public bool IsFrozen => CurrentFreezeCount > 0;
+        /// <summary>True while the top layer of a double block is still present.</summary>
+        public bool HasDoubleLayer { get; private set; }
+        public bool IsPeelingDoubleLayer => isPeelingDoubleLayer;
+        public bool IsMovableBarrier => PieceData != null && PieceData.isMovableBarrier;
 
         [Header("Посилання")]
         [SerializeField] private GameObject modelInstance;
@@ -38,6 +42,10 @@ namespace LegoPuzzle.Runtime
         private bool isDragging = false;
         private bool isSnapping = false;
         private bool isExiting = false;
+        private bool isPeelingDoubleLayer = false;
+        private bool usingRuntimePieceData = false;
+        private readonly List<GameObject> doubleLayerWindows = new List<GameObject>();
+        private readonly List<Renderer> hiddenOuterStudRenderers = new List<Renderer>();
 
         private GameObject visualRoot;
         private GameObject shadowRoot;
@@ -74,12 +82,17 @@ namespace LegoPuzzle.Runtime
 
         public void TriggerAutoExit(ExitDirection dir)
         {
-            if (isExiting || IsFrozen) return;
+            if (isExiting || isPeelingDoubleLayer || IsFrozen) return;
             isDragging = false;
             isSnapping = false;
             isLifted = false;
             targetLiftY = 0f;
             SetOutlineActive(false);
+            if (HasDoubleLayer)
+            {
+                StartCoroutine(PeelDoubleLayerViaExit(dir));
+                return;
+            }
             StartCoroutine(PlayExitAnimation(dir));
         }
 
@@ -91,6 +104,7 @@ namespace LegoPuzzle.Runtime
             cellSize = size;
             CurrentOrigin = data.originPosition;
             CurrentFreezeCount = data != null ? Mathf.Max(0, data.freezeCount) : 0;
+            HasDoubleLayer = data != null && data.isDoubleBlock && !data.isMovableBarrier;
             modelInstance = visualChild;
             currentOffsets = data.shape != null ? data.GetOrientedOffsets() : new List<Vector2Int> { Vector2Int.zero };
 
@@ -149,6 +163,7 @@ namespace LegoPuzzle.Runtime
             SetupShadow();
             SetupIceShell();
             SetupFreezeBadge();
+            SetupDoubleLayerWindows();
         }
 
         private void SetupCollider()
@@ -183,15 +198,29 @@ namespace LegoPuzzle.Runtime
 
         private void SetupVisualModel(BlockPalette palette)
         {
-            Color blockColor = PieceData.GetColor();
-            if (IsFrozen)
-            {
-                blockColor = Color.Lerp(blockColor, new Color(0.55f, 0.85f, 1f, 1f), 0.32f);
-            }
+            Color blockColor = GetDisplayColor();
 
             if (modelInstance != null)
             {
-                ApplyColor(modelInstance, blockColor);
+                ApplyPieceAppearance(modelInstance, blockColor, palette);
+                AlignAndScaleModel(modelInstance);
+            }
+            else if (IsMovableBarrier && palette != null && palette.obstacleTilePrefab != null)
+            {
+                GameObject unitContainer = new GameObject("BarrierVisuals");
+                Transform parentT = visualRoot != null ? visualRoot.transform : transform;
+                unitContainer.transform.SetParent(parentT, false);
+                unitContainer.transform.localPosition = visualRoot != null ? -visualCenter : Vector3.zero;
+
+                foreach (var offset in currentOffsets)
+                {
+                    GameObject unit = Instantiate(palette.obstacleTilePrefab, unitContainer.transform);
+                    unit.transform.localPosition = new Vector3(offset.x * cellSize, 0.02f, offset.y * cellSize);
+                    StripPhysicsAndScripts(unit);
+                    ApplyPieceAppearance(unit, blockColor, palette);
+                }
+
+                modelInstance = unitContainer;
                 AlignAndScaleModel(modelInstance);
             }
             else if (palette != null && palette.legoStudUnitPrefab != null)
@@ -206,10 +235,76 @@ namespace LegoPuzzle.Runtime
                 {
                     GameObject unit = Instantiate(palette.legoStudUnitPrefab, unitContainer.transform);
                     unit.transform.localPosition = new Vector3(offset.x * cellSize, 0.02f, offset.y * cellSize);
-                    ApplyColor(unit, blockColor);
+                    ApplyPieceAppearance(unit, blockColor, palette);
                 }
 
                 modelInstance = unitContainer;
+            }
+        }
+
+        private static readonly Color MovableBarrierFallbackColor = new Color(0.28f, 0.26f, 0.25f, 1f);
+
+        private Color GetDisplayColor()
+        {
+            if (IsMovableBarrier)
+                return MovableBarrierFallbackColor;
+
+            Color blockColor = PieceData.GetColor();
+            if (IsFrozen)
+                blockColor = Color.Lerp(blockColor, new Color(0.55f, 0.85f, 1f, 1f), 0.32f);
+            return blockColor;
+        }
+
+        private void ApplyPieceAppearance(GameObject target, Color color, BlockPalette palette)
+        {
+            if (target == null) return;
+
+            if (IsMovableBarrier && palette != null && palette.obstacleTileMaterial != null)
+            {
+                var renderers = target.GetComponentsInChildren<Renderer>(true);
+                for (int i = 0; i < renderers.Length; i++)
+                {
+                    Renderer r = renderers[i];
+                    if (r == null || r == restrictionIconRenderer) continue;
+                    if (r.gameObject.name.StartsWith("Outline_", System.StringComparison.Ordinal)) continue;
+                    r.sharedMaterial = palette.obstacleTileMaterial;
+                }
+                return;
+            }
+
+            ApplyColor(target, color);
+        }
+
+        private void StripPhysicsAndScripts(GameObject root)
+        {
+            if (root == null) return;
+
+            var rbs = root.GetComponentsInChildren<Rigidbody>(true);
+            for (int i = 0; i < rbs.Length; i++)
+            {
+                rbs[i].isKinematic = true;
+                rbs[i].detectCollisions = false;
+                Destroy(rbs[i]);
+            }
+
+            var monos = root.GetComponentsInChildren<MonoBehaviour>(true);
+            for (int i = 0; i < monos.Length; i++)
+            {
+                if (monos[i] != null && monos[i] != this)
+                {
+                    monos[i].enabled = false;
+                    Destroy(monos[i]);
+                }
+            }
+
+            var cols = root.GetComponentsInChildren<Collider>(true);
+            for (int i = 0; i < cols.Length; i++)
+            {
+                if (cols[i] != null)
+                {
+                    cols[i].enabled = false;
+                    Destroy(cols[i]);
+                }
             }
         }
 
@@ -289,6 +384,8 @@ namespace LegoPuzzle.Runtime
             foreach (var r in renderers)
             {
                 if (r == restrictionIconRenderer) continue;
+                if (r.gameObject.name.StartsWith("DoubleLayer", System.StringComparison.Ordinal)) continue;
+                if (r.gameObject.name.StartsWith("Outline_", System.StringComparison.Ordinal)) continue;
                 r.GetPropertyBlock(mpb);
                 mpb.SetColor("_Color", color);
                 mpb.SetColor("_BaseColor", color);
@@ -302,15 +399,23 @@ namespace LegoPuzzle.Runtime
         public void RefreshColor()
         {
             if (PieceData == null) return;
-            Color blockColor = PieceData.GetColor();
-            if (IsFrozen)
-            {
-                blockColor = Color.Lerp(blockColor, new Color(0.55f, 0.85f, 1f, 1f), 0.32f);
-            }
+            Color blockColor = GetDisplayColor();
             if (modelInstance != null)
             {
-                ApplyColor(modelInstance, blockColor);
+                ApplyPieceAppearance(modelInstance, blockColor, cachedPalette);
             }
+            RefreshDoubleLayerWindowColors();
+        }
+
+        /// <summary>
+        /// Peels the top layer of a double block in-place (exit / hammer / any destroy).
+        /// Returns true if a peel was started (caller must NOT fully destroy the piece).
+        /// </summary>
+        public bool TryPeelDoubleLayer()
+        {
+            if (!HasDoubleLayer || isPeelingDoubleLayer || isExiting) return false;
+            StartCoroutine(PeelDoubleLayerRoutine());
+            return true;
         }
 
         private void SetupRestrictionIcon(BlockPalette palette)
@@ -564,6 +669,8 @@ namespace LegoPuzzle.Runtime
                 return;
             }
 
+            if (isPeelingDoubleLayer) return;
+
             if (IsFrozen)
             {
                 PlayFrozenShake();
@@ -612,7 +719,7 @@ namespace LegoPuzzle.Runtime
         public void OnBeginDrag(PointerEventData eventData)
         {
             if (HammerBooster.IsHammerActive) return;
-            if (isExiting || isSnapping || levelLoader == null || !levelLoader.IsGameplayActive) return;
+            if (isExiting || isPeelingDoubleLayer || isSnapping || levelLoader == null || !levelLoader.IsGameplayActive) return;
             if (PieceData.moveRestriction == MoveRestriction.Locked) return;
             if (IsFrozen)
             {
@@ -636,7 +743,7 @@ namespace LegoPuzzle.Runtime
 
         public void OnDrag(PointerEventData eventData)
         {
-            if (IsFrozen) return;
+            if (IsFrozen || isPeelingDoubleLayer) return;
             if (BoosterTutorialManager.IsBoosterTutorialActive || HammerBooster.IsHammerActive)
             {
                 if (isDragging)
@@ -776,17 +883,20 @@ namespace LegoPuzzle.Runtime
             }
 
             // Миттєвий вихід у ворота під час перетягування (навіть якщо палець ще не відпущено)
-            if (!isExiting && levelLoader.CheckIfPieceExits(this, CurrentOrigin, out ExitDirection exitDir))
+            if (!isExiting && !isPeelingDoubleLayer && levelLoader.CheckIfPieceExits(this, CurrentOrigin, out ExitDirection exitDir))
             {
                 isDragging = false;
-                StartCoroutine(PlayExitAnimation(exitDir));
+                if (HasDoubleLayer)
+                    StartCoroutine(PeelDoubleLayerViaExit(exitDir));
+                else
+                    StartCoroutine(PlayExitAnimation(exitDir));
             }
         }
 
         public void OnEndDrag(PointerEventData eventData)
         {
             SetOutlineActive(false);
-            if (IsFrozen) return;
+            if (IsFrozen || isPeelingDoubleLayer) return;
 
             if (BoosterTutorialManager.IsBoosterTutorialActive || HammerBooster.IsHammerActive)
             {
@@ -925,14 +1035,23 @@ namespace LegoPuzzle.Runtime
             CurrentOrigin = targetOrigin;
             isSnapping = false;
 
-            if (!isExiting && levelLoader.CheckIfPieceExits(this, CurrentOrigin, out ExitDirection exitDir))
+            if (!isExiting && !isPeelingDoubleLayer && levelLoader.CheckIfPieceExits(this, CurrentOrigin, out ExitDirection exitDir))
             {
-                StartCoroutine(PlayExitAnimation(exitDir));
+                if (HasDoubleLayer)
+                    StartCoroutine(PeelDoubleLayerViaExit(exitDir));
+                else
+                    StartCoroutine(PlayExitAnimation(exitDir));
             }
         }
 
         private IEnumerator PlayExitAnimation(ExitDirection direction)
         {
+            if (HasDoubleLayer)
+            {
+                yield return PeelDoubleLayerViaExit(direction);
+                yield break;
+            }
+
             isExiting = true;
             isDragging = false;
             isSnapping = false;
@@ -949,7 +1068,8 @@ namespace LegoPuzzle.Runtime
 
             if (levelLoader != null)
             {
-                levelLoader.NotifyBlockMoved();
+                // Player-driven exits already called NotifyBlockMoved from OnDrag/OnEndDrag.
+                // Auto-exit must not mark first move (keeps L1 tutorial hand visible).
                 levelLoader.NotifyGateReaction(this, direction);
                 levelLoader.PlayPieceExitSound();
             }
@@ -1988,6 +2108,529 @@ namespace LegoPuzzle.Runtime
             cachedIceBadgeSprite = Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), 100f);
             return cachedIceBadgeSprite;
         }
+
+        #region Double Layer Block
+
+        // Double-layer look: outer brick stays as the frame; each occupied cell gets a small
+        // 1x1 of the second color sitting in a recessed well (matches reference screenshot).
+        private const float DoubleInner1x1Scale = 0.55f;
+        private static Material sharedDoubleLitMaterial;
+
+        /// <summary>
+        /// Visual = per-cell mini 1x1 bricks in the inner color, nested in the outer brick wells.
+        /// </summary>
+        private void SetupDoubleLayerWindows()
+        {
+            ClearDoubleLayerWindows();
+            RestoreHiddenOuterStuds();
+            if (!HasDoubleLayer || PieceData == null) return;
+
+            Transform parentT = visualRoot != null ? visualRoot.transform : transform;
+            Color inner = PieceData.GetInnerColor();
+
+            float modelH = GetModelHeight();
+            HideOuterStudsForCutouts();
+            BuildInner1x1Markers(parentT, inner, modelH);
+        }
+
+        private void HideOuterStudsForCutouts()
+        {
+            if (modelInstance == null) return;
+
+            // Hide stud meshes so each cell reads as an open well for the inner 1x1.
+            var rends = modelInstance.GetComponentsInChildren<Renderer>(true);
+            for (int i = 0; i < rends.Length; i++)
+            {
+                Renderer r = rends[i];
+                if (r == null || !r.enabled) continue;
+                string n = r.gameObject.name;
+                if (n.StartsWith("Outline_", System.StringComparison.Ordinal)) continue;
+                if (n.StartsWith("DoubleLayer", System.StringComparison.Ordinal)) continue;
+
+                bool nameLooksLikeStud =
+                    n.IndexOf("stud", System.StringComparison.OrdinalIgnoreCase) >= 0
+                    || n.IndexOf("knob", System.StringComparison.OrdinalIgnoreCase) >= 0
+                    || n.IndexOf("peg", System.StringComparison.OrdinalIgnoreCase) >= 0;
+
+                if (!nameLooksLikeStud) continue;
+
+                r.enabled = false;
+                hiddenOuterStudRenderers.Add(r);
+            }
+        }
+
+        private void RestoreHiddenOuterStuds()
+        {
+            for (int i = 0; i < hiddenOuterStudRenderers.Count; i++)
+            {
+                if (hiddenOuterStudRenderers[i] != null)
+                    hiddenOuterStudRenderers[i].enabled = true;
+            }
+            hiddenOuterStudRenderers.Clear();
+        }
+
+        private void BuildInner1x1Markers(Transform parentT, Color innerColor, float modelH)
+        {
+            if (currentOffsets == null || currentOffsets.Count == 0) return;
+
+            GameObject innerRoot = new GameObject("DoubleLayerInner");
+            innerRoot.transform.SetParent(parentT, false);
+            innerRoot.transform.localPosition = Vector3.zero;
+            innerRoot.transform.localRotation = Quaternion.identity;
+            innerRoot.transform.localScale = Vector3.one;
+            doubleLayerWindows.Add(innerRoot);
+
+            // 1x1 meshes often pack several studs into one cell, which hides the default
+            // recessed marker — only for that shape, raise + enlarge so the second color shows.
+            bool isSingleCell = currentOffsets.Count == 1;
+            float markerScale = isSingleCell ? 0.72f : DoubleInner1x1Scale;
+            float prefabY = modelH * (isSingleCell ? 0.52f : 0.22f);
+            float bodyH = Mathf.Max(0.12f, modelH * (isSingleCell ? 0.40f : 0.36f));
+            float studH = Mathf.Max(0.03f, modelH * 0.07f);
+            float bodyY = modelH * (isSingleCell ? 0.68f : 0.42f);
+            float studY = bodyY + bodyH * 0.5f + studH * 0.45f;
+            float face = cellSize * markerScale;
+            float studD = cellSize * (isSingleCell ? 0.36f : 0.30f);
+
+            GameObject unitPrefab = cachedPalette != null ? cachedPalette.legoStudUnitPrefab : null;
+
+            for (int i = 0; i < currentOffsets.Count; i++)
+            {
+                Vector3 cellPos = CellLocalPos(currentOffsets[i]);
+
+                GameObject cellRoot = new GameObject("DoubleLayerInner1x1");
+                cellRoot.transform.SetParent(innerRoot.transform, false);
+                cellRoot.transform.localPosition = cellPos;
+                cellRoot.transform.localRotation = Quaternion.identity;
+                cellRoot.transform.localScale = Vector3.one;
+
+                if (unitPrefab != null)
+                {
+                    GameObject unit = Instantiate(unitPrefab, cellRoot.transform);
+                    unit.name = "DoubleLayerInner1x1Unit";
+                    unit.transform.localPosition = new Vector3(0f, prefabY, 0f);
+                    unit.transform.localRotation = Quaternion.identity;
+                    unit.transform.localScale = Vector3.one * markerScale;
+
+                    var cols = unit.GetComponentsInChildren<Collider>(true);
+                    for (int c = 0; c < cols.Length; c++)
+                        Destroy(cols[c]);
+
+                    ApplyColorToHierarchy(unit, innerColor);
+                    continue;
+                }
+
+                GameObject body = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                body.name = "DoubleLayerInnerBody";
+                body.transform.SetParent(cellRoot.transform, false);
+                body.transform.localPosition = new Vector3(0f, bodyY, 0f);
+                body.transform.localScale = new Vector3(face, bodyH, face);
+                Destroy(body.GetComponent<Collider>());
+                ApplySolidColor(body, innerColor);
+
+                GameObject stud = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+                stud.name = "DoubleLayerInnerStud";
+                stud.transform.SetParent(cellRoot.transform, false);
+                stud.transform.localPosition = new Vector3(0f, studY, 0f);
+                stud.transform.localScale = new Vector3(studD, studH, studD);
+                Destroy(stud.GetComponent<Collider>());
+                ApplySolidColor(stud, Color.Lerp(innerColor, Color.white, 0.08f));
+            }
+        }
+
+        private Vector3 CellLocalPos(Vector2Int offset)
+        {
+            return visualRoot != null
+                ? new Vector3(offset.x * cellSize - visualCenter.x, 0f, offset.y * cellSize - visualCenter.z)
+                : new Vector3(offset.x * cellSize, 0f, offset.y * cellSize);
+        }
+
+        private void RefreshDoubleLayerWindowColors()
+        {
+            if (!HasDoubleLayer || PieceData == null) return;
+            Color inner = PieceData.GetInnerColor();
+
+            for (int i = 0; i < doubleLayerWindows.Count; i++)
+            {
+                GameObject go = doubleLayerWindows[i];
+                if (go == null) continue;
+                if (go.name == "DoubleLayerInner")
+                    ApplyColorToHierarchy(go, inner);
+            }
+        }
+
+        private void ClearDoubleLayerWindows()
+        {
+            for (int i = 0; i < doubleLayerWindows.Count; i++)
+            {
+                if (doubleLayerWindows[i] != null)
+                    Destroy(doubleLayerWindows[i]);
+            }
+            doubleLayerWindows.Clear();
+            RestoreHiddenOuterStuds();
+        }
+
+        private Material GetOrCreateDoubleLitMaterial()
+        {
+            if (sharedDoubleLitMaterial != null) return sharedDoubleLitMaterial;
+
+            if (cachedPalette != null && cachedPalette.legoBaseMaterial != null)
+            {
+                sharedDoubleLitMaterial = cachedPalette.legoBaseMaterial;
+                return sharedDoubleLitMaterial;
+            }
+
+            if (modelInstance != null)
+            {
+                var r = modelInstance.GetComponentInChildren<Renderer>();
+                if (r != null && r.sharedMaterial != null)
+                {
+                    sharedDoubleLitMaterial = r.sharedMaterial;
+                    return sharedDoubleLitMaterial;
+                }
+            }
+
+            Shader sh = Shader.Find("Universal Render Pipeline/Lit")
+                        ?? Shader.Find("Universal Render Pipeline/Simple Lit")
+                        ?? Shader.Find("Standard")
+                        ?? Shader.Find("Sprites/Default");
+            sharedDoubleLitMaterial = new Material(sh != null ? sh : Shader.Find("Hidden/InternalErrorShader"));
+            sharedDoubleLitMaterial.name = "DoubleLayerLit_Runtime";
+            return sharedDoubleLitMaterial;
+        }
+
+        private void ApplySolidColor(GameObject target, Color color)
+        {
+            var r = target.GetComponent<Renderer>();
+            if (r == null) return;
+
+            // PropertyBlock alone on a mesh with NO material → Unity magenta error.
+            if (r.sharedMaterial == null
+                || r.sharedMaterial.shader == null
+                || r.sharedMaterial.shader.name.IndexOf("Error", System.StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                r.sharedMaterial = GetOrCreateDoubleLitMaterial();
+            }
+
+            MaterialPropertyBlock mpb = new MaterialPropertyBlock();
+            r.GetPropertyBlock(mpb);
+            mpb.SetColor("_Color", color);
+            mpb.SetColor("_BaseColor", color);
+            r.SetPropertyBlock(mpb);
+        }
+
+        private void ApplyColorToHierarchy(GameObject root, Color color)
+        {
+            if (root == null) return;
+            var rends = root.GetComponentsInChildren<Renderer>(true);
+            for (int i = 0; i < rends.Length; i++)
+            {
+                Renderer r = rends[i];
+                if (r == null) continue;
+                if (r.gameObject.name.StartsWith("Outline_", System.StringComparison.Ordinal)) continue;
+
+                if (r.sharedMaterial == null
+                    || r.sharedMaterial.shader == null
+                    || r.sharedMaterial.shader.name.IndexOf("Error", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    r.sharedMaterial = GetOrCreateDoubleLitMaterial();
+                }
+
+                MaterialPropertyBlock mpb = new MaterialPropertyBlock();
+                r.GetPropertyBlock(mpb);
+                mpb.SetColor("_Color", color);
+                mpb.SetColor("_BaseColor", color);
+                r.SetPropertyBlock(mpb);
+            }
+        }
+
+        private void EnsureRuntimePieceData()
+        {
+            if (usingRuntimePieceData || PieceData == null) return;
+            string json = JsonUtility.ToJson(PieceData);
+            LegoPieceData clone = JsonUtility.FromJson<LegoPieceData>(json);
+            clone.shape = PieceData.shape;
+            PieceData = clone;
+            usingRuntimePieceData = true;
+        }
+
+        /// <summary>
+        /// In-place peel (hammer / destroy): top layer cracks off, bottom stays.
+        /// Move restriction belonged only to the top layer — bottom becomes Free.
+        /// </summary>
+        private IEnumerator PeelDoubleLayerRoutine()
+        {
+            if (!HasDoubleLayer || isPeelingDoubleLayer) yield break;
+
+            isPeelingDoubleLayer = true;
+            isDragging = false;
+            isSnapping = false;
+            isLifted = false;
+            targetLiftY = 0f;
+            SetOutlineActive(false);
+
+            // Same smash shatter as a normal block, while PieceData still has the top color.
+            SpawnShatterDebris();
+            SnapPieceVisualToGrid();
+            ApplyDoubleLayerConvertedToInner();
+
+            if (levelLoader != null)
+            {
+                levelLoader.PlayBlockCrackSound();
+                levelLoader.NotifyBlockMoved();
+                levelLoader.NotifyPieceDestroyed(this);
+            }
+            if (GameSettingsManager.HasInstance)
+                GameSettingsManager.Instance.TriggerHaptic();
+
+            Transform punchT = visualRoot != null ? visualRoot.transform : transform;
+            Vector3 baseScale = punchT.localScale;
+            float elapsed = 0f;
+            float punchDur = 0.18f;
+            while (elapsed < punchDur)
+            {
+                elapsed += Time.deltaTime;
+                float t = Mathf.Clamp01(elapsed / punchDur);
+                float mul = 1f + Mathf.Sin(t * Mathf.PI) * 0.14f;
+                punchT.localScale = baseScale * mul;
+                yield return null;
+            }
+
+            punchT.localScale = baseScale;
+
+            if (levelLoader != null)
+                levelLoader.CheckAndTriggerAutoExits();
+
+            isPeelingDoubleLayer = false;
+        }
+
+        /// <summary>
+        /// Gate exit of the top layer: same slide/fade exit anim as a normal block,
+        /// while the bottom layer stays on the board as a free piece.
+        /// </summary>
+        private IEnumerator PeelDoubleLayerViaExit(ExitDirection direction)
+        {
+            if (!HasDoubleLayer || isPeelingDoubleLayer) yield break;
+
+            isPeelingDoubleLayer = true;
+            isDragging = false;
+            isSnapping = false;
+            isLifted = false;
+            targetLiftY = 0f;
+            SetOutlineActive(false);
+
+            Color topColor = PieceData != null ? PieceData.GetColor() : Color.white;
+
+            // Gate FX + SFX while PieceData still has the top color.
+            if (levelLoader != null)
+            {
+                levelLoader.NotifyGateReaction(this, direction);
+                levelLoader.PlayPieceExitSound();
+                levelLoader.NotifyBlockMoved();
+            }
+            if (GameSettingsManager.HasInstance)
+                GameSettingsManager.Instance.TriggerHapticExit();
+
+            // Ghost starts from the current (possibly mid-drag) pose.
+            GameObject ghost = CreateTopLayerExitGhost(topColor);
+
+            // Bottom layer must sit exactly on its grid cell — not at the dragged/lifted pose.
+            SnapPieceVisualToGrid();
+            ApplyDoubleLayerConvertedToInner();
+
+            if (levelLoader != null)
+                levelLoader.NotifyPieceDestroyed(this);
+
+            if (ghost != null)
+                yield return AnimateExitGhost(ghost, direction, topColor);
+
+            if (ghost != null)
+                Destroy(ghost);
+
+            isPeelingDoubleLayer = false;
+
+            if (levelLoader != null)
+                levelLoader.CheckAndTriggerAutoExits();
+        }
+
+        private void SnapPieceVisualToGrid()
+        {
+            currentLiftY = 0f;
+            targetLiftY = 0f;
+            isLifted = false;
+            UpdateWorldPosition();
+            if (visualRoot != null)
+            {
+                visualRoot.transform.localPosition = visualCenter;
+                visualRoot.transform.localRotation = Quaternion.identity;
+                visualRoot.transform.localScale = Vector3.one;
+            }
+        }
+
+        private void ApplyDoubleLayerConvertedToInner()
+        {
+            ClearDoubleLayerWindows();
+
+            EnsureRuntimePieceData();
+            if (PieceData != null)
+            {
+                PieceData.colorType = PieceData.innerColorType;
+                PieceData.customColor = PieceData.innerCustomColor;
+                PieceData.isDoubleBlock = false;
+                // Direction lock applied only to the top layer.
+                PieceData.moveRestriction = MoveRestriction.Free;
+            }
+
+            HasDoubleLayer = false;
+            RefreshColor();
+
+            if (restrictionIconRenderer != null)
+                restrictionIconRenderer.gameObject.SetActive(false);
+        }
+
+        private GameObject CreateTopLayerExitGhost(Color topColor)
+        {
+            Transform board = transform.parent;
+            GameObject ghostRoot = new GameObject("DoubleLayerExitGhost");
+            if (board != null)
+                ghostRoot.transform.SetParent(board, false);
+            ghostRoot.transform.localPosition = transform.localPosition;
+            ghostRoot.transform.localRotation = transform.localRotation;
+            ghostRoot.transform.localScale = transform.localScale;
+
+            if (visualRoot != null)
+            {
+                GameObject ghostVisual = Instantiate(visualRoot, ghostRoot.transform);
+                ghostVisual.name = "GhostVisual";
+                // Flatten lift so exit ghost matches a grounded brick at the current XY.
+                ghostVisual.transform.localPosition = visualCenter;
+                ghostVisual.transform.localRotation = Quaternion.identity;
+                ghostVisual.transform.localScale = Vector3.one;
+
+                // Keep only the outer brick look — strip inner markers / freeze / outline.
+                var strip = ghostVisual.GetComponentsInChildren<Transform>(true);
+                for (int i = 0; i < strip.Length; i++)
+                {
+                    Transform t = strip[i];
+                    if (t == null || t == ghostVisual.transform) continue;
+                    string n = t.gameObject.name;
+                    if (n.StartsWith("DoubleLayer", System.StringComparison.Ordinal)
+                        || n.StartsWith("Outline_", System.StringComparison.Ordinal)
+                        || n == "IceShell"
+                        || n == "RestrictionIcon"
+                        || n.IndexOf("FreezeBadge", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        Destroy(t.gameObject);
+                    }
+                }
+
+                var cols = ghostVisual.GetComponentsInChildren<Collider>(true);
+                for (int i = 0; i < cols.Length; i++)
+                    Destroy(cols[i]);
+
+                ApplyColorToHierarchy(ghostVisual, topColor);
+            }
+            else if (modelInstance != null)
+            {
+                GameObject ghostModel = Instantiate(modelInstance, ghostRoot.transform);
+                ghostModel.transform.localPosition = modelInstance.transform.localPosition;
+                ghostModel.transform.localRotation = modelInstance.transform.localRotation;
+                ghostModel.transform.localScale = modelInstance.transform.localScale;
+                var cols = ghostModel.GetComponentsInChildren<Collider>(true);
+                for (int i = 0; i < cols.Length; i++)
+                    Destroy(cols[i]);
+                ApplyColorToHierarchy(ghostModel, topColor);
+            }
+
+            return ghostRoot;
+        }
+
+        private IEnumerator AnimateExitGhost(GameObject ghost, ExitDirection direction, Color topColor)
+        {
+            if (ghost == null) yield break;
+
+            var rends = ghost.GetComponentsInChildren<Renderer>(true);
+            List<Renderer> activeRenderers = new List<Renderer>();
+            for (int i = 0; i < rends.Length; i++)
+            {
+                Renderer r = rends[i];
+                if (r == null) continue;
+                if (r.gameObject.name.StartsWith("Outline_", System.StringComparison.Ordinal)) continue;
+                activeRenderers.Add(r);
+
+                foreach (var mat in r.materials)
+                {
+                    mat.SetFloat("_Surface", 1f);
+                    mat.SetOverrideTag("RenderType", "Transparent");
+                    mat.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
+                    mat.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+                    mat.SetInt("_ZWrite", 0);
+                    mat.DisableKeyword("_ALPHATEST_ON");
+                    mat.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+                    mat.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+                }
+            }
+
+            Vector3 exitOffset = direction switch
+            {
+                ExitDirection.Up => Vector3.forward * 12f,
+                ExitDirection.Down => Vector3.back * 12f,
+                ExitDirection.Left => Vector3.left * 12f,
+                ExitDirection.Right => Vector3.right * 12f,
+                _ => Vector3.forward * 12f
+            };
+
+            Vector3 startPos = ghost.transform.localPosition;
+            Vector3 endPos = startPos + exitOffset;
+            Vector3 baseScale = ghost.transform.localScale;
+
+            Vector3 funnelScale = baseScale;
+            if (direction == ExitDirection.Up || direction == ExitDirection.Down)
+            {
+                funnelScale.z *= 1.32f;
+                funnelScale.x *= 0.84f;
+            }
+            else
+            {
+                funnelScale.x *= 1.32f;
+                funnelScale.z *= 0.84f;
+            }
+
+            MaterialPropertyBlock fadeMpb = new MaterialPropertyBlock();
+            float duration = 0.36f;
+            float elapsed = 0f;
+
+            while (elapsed < duration)
+            {
+                elapsed += Time.deltaTime;
+                float progress = Mathf.Clamp01(elapsed / duration);
+
+                float tPos = Mathf.Pow(progress, 1.7f);
+                ghost.transform.localPosition = Vector3.Lerp(startPos, endPos, tPos);
+
+                float tScale = Mathf.Sin(progress * Mathf.PI);
+                ghost.transform.localScale = Vector3.Lerp(baseScale, funnelScale, tScale);
+
+                float alpha = Mathf.Lerp(1.0f, 0.25f, progress / 0.7f);
+                if (progress > 0.7f)
+                    alpha = Mathf.Lerp(0.25f, 0f, (progress - 0.7f) / 0.3f);
+
+                Color fadedColor = new Color(topColor.r, topColor.g, topColor.b, alpha);
+                for (int i = 0; i < activeRenderers.Count; i++)
+                {
+                    Renderer r = activeRenderers[i];
+                    if (r == null) continue;
+                    r.GetPropertyBlock(fadeMpb);
+                    fadeMpb.SetColor("_Color", fadedColor);
+                    fadeMpb.SetColor("_BaseColor", fadedColor);
+                    r.SetPropertyBlock(fadeMpb);
+                }
+
+                yield return null;
+            }
+        }
+
+        #endregion
 
         /// <summary>
         /// Зменшує лічильник заморозки блоку при знищенні іншого блоку.

@@ -27,9 +27,9 @@ namespace LegoPuzzle.Runtime
         // Ігровий прогрес
         public int currentLevelIndex = 0;
 
-        // Економіка
-        public int coins = 100;
-        public int gems = 10;
+        // Економіка — на старті повний нуль (окрім сердець)
+        public int coins = 0;
+        public int gems = 0;
 
         // Життя / Енергія
         public int hearts = 5;
@@ -52,6 +52,17 @@ namespace LegoPuzzle.Runtime
         public int[] lottoSlotNumbers;
         public bool[] lottoSlotsOpen;
         public int lottoClaimedPrizeMask;
+
+        // Daily Rewards (7-day cycle, local calendar)
+        public string dailyRewardCycleStartDate = "";
+        public int dailyRewardClaimedMask = 0;
+        /// <summary>Local DateTime.Ticks of the last successful claim (drives next-day unlock).</summary>
+        public long dailyRewardLastClaimLocalTicks = 0;
+
+        // Menu feature unlock hand tutorials (once each)
+        public bool menuUnlockTutorialDailyShown;
+        public bool menuUnlockTutorialSlotsShown;
+        public bool menuUnlockTutorialLottoShown;
 
         // Налаштування гри
         public SettingsSaveData settings = new SettingsSaveData();
@@ -393,10 +404,10 @@ namespace LegoPuzzle.Runtime
                 migrated.currentLevelIndex = Mathf.Max(0, PlayerPrefs.GetInt(PREFS_LEVEL_INDEX, 0));
 
             if (PlayerPrefs.HasKey(PREFS_COINS))
-                migrated.coins = Mathf.Max(0, PlayerPrefs.GetInt(PREFS_COINS, 100));
+                migrated.coins = Mathf.Max(0, PlayerPrefs.GetInt(PREFS_COINS, 0));
 
             if (PlayerPrefs.HasKey(PREFS_GEMS))
-                migrated.gems = Mathf.Max(0, PlayerPrefs.GetInt(PREFS_GEMS, 10));
+                migrated.gems = Mathf.Max(0, PlayerPrefs.GetInt(PREFS_GEMS, 0));
 
             if (PlayerPrefs.HasKey(PREFS_HEARTS))
                 migrated.hearts = Mathf.Clamp(PlayerPrefs.GetInt(PREFS_HEARTS, 5), 0, 5);
@@ -464,13 +475,54 @@ namespace LegoPuzzle.Runtime
         }
 
         /// <summary>
-        /// Скидає весь прогрес, баланс монет, гемів, бустерів та налаштування до початкових значень.
+        /// Повністю очищає всі збереження: файл сейву, legacy PlayerPrefs, прогрес, валюти,
+        /// бустери, daily/lotto/slots стан, туторіали та налаштування — і створює чистий дефолтний сейв.
         /// </summary>
         public void ResetAllData()
         {
+            DeleteSaveFilesOnDisk();
+            ClearAllLegacyPlayerPrefs();
+
             Data = new GameSaveData();
             Save();
 
+            OnReset?.Invoke();
+            OnLoaded?.Invoke(Data);
+            Debug.Log("<color=yellow>[SaveDataService] Усі збереження повністю очищено. Створено новий дефолтний сейв.</color>");
+        }
+
+        private void DeleteSaveFilesOnDisk()
+        {
+            try
+            {
+                string filePath = SaveFilePath;
+                string tempPath = filePath + ".tmp";
+                string bakPath = filePath + ".bak";
+                string corruptedPath = filePath + ".corrupted";
+
+                if (File.Exists(filePath)) File.Delete(filePath);
+                if (File.Exists(tempPath)) File.Delete(tempPath);
+                if (File.Exists(bakPath)) File.Delete(bakPath);
+                if (File.Exists(corruptedPath)) File.Delete(corruptedPath);
+
+                string directory = Path.GetDirectoryName(filePath);
+                if (!string.IsNullOrEmpty(directory) && Directory.Exists(directory))
+                {
+                    foreach (string path in Directory.GetFiles(directory, "savedata.json*"))
+                    {
+                        try { File.Delete(path); }
+                        catch { /* ignore locked/temp files */ }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[SaveDataService] Не вдалося видалити файл сейву: {ex.Message}");
+            }
+        }
+
+        private void ClearAllLegacyPlayerPrefs()
+        {
             PlayerPrefs.DeleteKey(PREFS_LEVEL_INDEX);
             PlayerPrefs.DeleteKey(PREFS_COINS);
             PlayerPrefs.DeleteKey(PREFS_COINS_INIT);
@@ -486,10 +538,14 @@ namespace LegoPuzzle.Runtime
             PlayerPrefs.DeleteKey(PREFS_HINT_CHARGES);
             PlayerPrefs.DeleteKey(PREFS_HINT_CHARGES_ALT);
             PlayerPrefs.DeleteKey(PREFS_LOTTO_FREE_SPINS);
+            PlayerPrefs.DeleteKey(PREFS_SOUND_ENABLED);
+            PlayerPrefs.DeleteKey(PREFS_MUSIC_ENABLED);
+            PlayerPrefs.DeleteKey(PREFS_VIBRATION_ENABLED);
+            PlayerPrefs.DeleteKey(PREFS_NOTIFICATIONS_ENABLED);
+            PlayerPrefs.DeleteKey(PREFS_COLORBLIND_ENABLED);
+            PlayerPrefs.DeleteKey(PREFS_SOUND_VOLUME);
+            PlayerPrefs.DeleteKey(PREFS_MUSIC_VOLUME);
             PlayerPrefs.Save();
-
-            OnReset?.Invoke();
-            Debug.Log("<color=yellow>[SaveDataService] Всі дані збереження скинуто до дефолтних значень.</color>");
         }
     }
 }

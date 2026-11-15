@@ -31,6 +31,9 @@ namespace LegoPuzzle.Editor
         private int pieceRotation = 0;
         private bool pieceFlipHorizontal = false;
         private int pieceFreezeCount = 0;
+        private bool pieceIsDoubleBlock = false;
+        private BlockColorType pieceInnerColorType = BlockColorType.Blue;
+        private bool pieceIsMovableBarrier = false;
 
         // Виділена деталь для редагування
         private LegoPieceData selectedPiece = null;
@@ -41,10 +44,37 @@ namespace LegoPuzzle.Editor
         private Vector2 scrollPos;
         private float previewCellSize = LevelGridRenderer.DEFAULT_CELL_SIZE;
 
+        private bool isFullscreen;
+        private Rect windowedPosition = new Rect(80f, 60f, 980f, 820f);
+
         private static LevelData pendingLevel;
+        private static bool pendingOpenFullscreen;
 
         [MenuItem("Tools/LEGO Level Editor", false, 1)]
         public static void OpenWindow()
+        {
+            OpenWindowInternal(fullscreen: false);
+        }
+
+        [MenuItem("Tools/LEGO Level Editor (Fullscreen)", false, 2)]
+        public static void OpenWindowFullscreen()
+        {
+            OpenWindowInternal(fullscreen: true);
+        }
+
+        [MenuItem("LEGO/Level Editor", false, 1)]
+        public static void OpenWindowFromLegoMenu()
+        {
+            OpenWindowInternal(fullscreen: false);
+        }
+
+        [MenuItem("LEGO/Level Editor (Fullscreen)", false, 2)]
+        public static void OpenWindowFullscreenFromLegoMenu()
+        {
+            OpenWindowInternal(fullscreen: true);
+        }
+
+        private static void OpenWindowInternal(bool fullscreen)
         {
             // Close a stuck/off-screen docked instance, then show a floating window on screen.
             LevelEditorWindow[] open = Resources.FindObjectsOfTypeAll<LevelEditorWindow>();
@@ -54,18 +84,18 @@ namespace LegoPuzzle.Editor
                     open[i].Close();
             }
 
+            pendingOpenFullscreen = fullscreen;
+
             var window = CreateInstance<LevelEditorWindow>();
             window.titleContent = new GUIContent("LEGO Editor");
             window.minSize = new Vector2(640f, 720f);
-            window.position = new Rect(80f, 60f, 980f, 820f);
+            window.windowedPosition = new Rect(80f, 60f, 980f, 820f);
+            window.position = window.windowedPosition;
             window.ShowUtility();
             window.Focus();
-        }
 
-        [MenuItem("LEGO/Level Editor", false, 1)]
-        public static void OpenWindowFromLegoMenu()
-        {
-            OpenWindow();
+            if (fullscreen)
+                window.ApplyFullscreen(true);
         }
 
         [UnityEditor.Callbacks.OnOpenAsset(1)]
@@ -85,6 +115,16 @@ namespace LegoPuzzle.Editor
                 targetLevel = pendingLevel;
             pendingLevel = null;
             ResolveTargetLevel();
+
+            if (pendingOpenFullscreen)
+            {
+                pendingOpenFullscreen = false;
+                EditorApplication.delayCall += () =>
+                {
+                    if (this != null)
+                        ApplyFullscreen(true);
+                };
+            }
         }
 
         private void ResolveTargetLevel()
@@ -112,13 +152,81 @@ namespace LegoPuzzle.Editor
             return !string.IsNullOrEmpty(path) && AssetDatabase.LoadAssetAtPath<LevelData>(path) != null;
         }
 
+        private void HandleFullscreenHotkeys()
+        {
+            Event e = Event.current;
+            if (e == null || e.type != EventType.KeyDown) return;
+
+            if (e.keyCode == KeyCode.F11)
+            {
+                ToggleFullscreen();
+                e.Use();
+            }
+            else if (isFullscreen && e.keyCode == KeyCode.Escape)
+            {
+                ApplyFullscreen(false);
+                e.Use();
+            }
+        }
+
+        private void ToggleFullscreen()
+        {
+            ApplyFullscreen(!isFullscreen);
+        }
+
+        private void ApplyFullscreen(bool fullscreen)
+        {
+            if (fullscreen == isFullscreen && fullscreen)
+            {
+                // Re-apply in case the main editor window moved/resized.
+                position = GetFullscreenRect();
+                return;
+            }
+
+            if (fullscreen)
+            {
+                windowedPosition = position;
+                // Avoid saving a tiny/invalid rect if we were already expanding.
+                if (windowedPosition.width < 200f || windowedPosition.height < 200f)
+                    windowedPosition = new Rect(80f, 60f, 980f, 820f);
+
+                position = GetFullscreenRect();
+                isFullscreen = true;
+            }
+            else
+            {
+                position = windowedPosition;
+                isFullscreen = false;
+            }
+
+            Repaint();
+        }
+
+        private static Rect GetFullscreenRect()
+        {
+            // Fill the Unity Editor main window — best "fullscreen" for a utility editor.
+            Rect main = EditorGUIUtility.GetMainWindowPosition();
+            if (main.width > 100f && main.height > 100f)
+                return main;
+
+            return new Rect(0f, 0f, Screen.currentResolution.width, Screen.currentResolution.height);
+        }
+
         private void OnGUI()
         {
+            HandleFullscreenHotkeys();
+
             if (!IsValidLevelAsset(targetLevel))
                 targetLevel = null;
 
             EditorGUILayout.Space(10);
+            EditorGUILayout.BeginHorizontal();
             EditorGUILayout.LabelField("LEGO Puzzle Level Editor", EditorStyles.boldLabel);
+
+            string fsLabel = isFullscreen ? "⤓ Вікно" : "⛶ Повний екран";
+            if (GUILayout.Button(new GUIContent(fsLabel, "F11 — повний екран / вікно"), GUILayout.Width(130), GUILayout.Height(22)))
+                ToggleFullscreen();
+            EditorGUILayout.EndHorizontal();
 
             DrawLevelHeader();
 
@@ -337,23 +445,62 @@ namespace LegoPuzzle.Editor
                 DrawShapeQuickSelection();
 
                 selectedShape = (LegoShapeDefinition)EditorGUILayout.ObjectField("Обрана форма", selectedShape, typeof(LegoShapeDefinition), false);
-                pieceColorType = (BlockColorType)EditorGUILayout.EnumPopup("Колір деталі", pieceColorType);
-                pieceRestriction = (MoveRestriction)EditorGUILayout.EnumPopup("Обмеження руху", pieceRestriction);
-                pieceRotation = EditorGUILayout.IntSlider($"Поворот ({pieceRotation * 90}°)", pieceRotation, 0, 3);
-                pieceFlipHorizontal = EditorGUILayout.Toggle("Дзеркало по X (Flip X)", pieceFlipHorizontal);
 
                 EditorGUILayout.Space(4);
-                EditorGUILayout.BeginHorizontal();
-                pieceFreezeCount = EditorGUILayout.IntField("❄ Лічильник заморозки", Mathf.Max(0, pieceFreezeCount));
-                if (pieceFreezeCount > 0 && GUILayout.Button("Скинути на 0", GUILayout.Width(100)))
+                bool wasBarrier = pieceIsMovableBarrier;
+                pieceIsMovableBarrier = EditorGUILayout.ToggleLeft("🧱 Рухомий бар'єр (колір стін, не виводиться)", pieceIsMovableBarrier);
+                if (pieceIsMovableBarrier)
                 {
-                    pieceFreezeCount = 0;
-                }
-                EditorGUILayout.EndHorizontal();
+                    pieceIsDoubleBlock = false;
+                    if (pieceRestriction == MoveRestriction.Locked)
+                        pieceRestriction = MoveRestriction.Free;
+                    if (!wasBarrier || selectedShape == null)
+                        TryAssignDefaultBarrierShape();
 
-                if (pieceFreezeCount > 0)
+                    pieceRestriction = (MoveRestriction)EditorGUILayout.EnumPopup("Обмеження руху", pieceRestriction);
+                    if (pieceRestriction == MoveRestriction.Locked)
+                        pieceRestriction = MoveRestriction.Free;
+
+                    EditorGUILayout.Space(4);
+                    EditorGUILayout.BeginHorizontal();
+                    pieceFreezeCount = EditorGUILayout.IntField("❄ Лічильник заморозки", Mathf.Max(0, pieceFreezeCount));
+                    if (pieceFreezeCount > 0 && GUILayout.Button("Скинути на 0", GUILayout.Width(100)))
+                        pieceFreezeCount = 0;
+                    EditorGUILayout.EndHorizontal();
+
+                    if (pieceFreezeCount > 0)
+                        EditorGUILayout.HelpBox($"Бар'єр буде замороженим! Стане рухомим після знищення {pieceFreezeCount} інш. блоків.", MessageType.Info);
+
+                    EditorGUILayout.HelpBox("Бар'єр блокує шлях, не виходить у ворота і не потрібен для перемоги. Може бути ❄ і слайдером ↔/↕.", MessageType.Info);
+                }
+                else
                 {
-                    EditorGUILayout.HelpBox($"Блок буде замороженим! Для розморозки потрібно знищити {pieceFreezeCount} інш. блоків.", MessageType.Info);
+                    pieceColorType = (BlockColorType)EditorGUILayout.EnumPopup("Колір деталі", pieceColorType);
+                    pieceRestriction = (MoveRestriction)EditorGUILayout.EnumPopup("Обмеження руху", pieceRestriction);
+                    pieceRotation = EditorGUILayout.IntSlider($"Поворот ({pieceRotation * 90}°)", pieceRotation, 0, 3);
+                    pieceFlipHorizontal = EditorGUILayout.Toggle("Дзеркало по X (Flip X)", pieceFlipHorizontal);
+
+                    EditorGUILayout.Space(4);
+                    EditorGUILayout.BeginHorizontal();
+                    pieceFreezeCount = EditorGUILayout.IntField("❄ Лічильник заморозки", Mathf.Max(0, pieceFreezeCount));
+                    if (pieceFreezeCount > 0 && GUILayout.Button("Скинути на 0", GUILayout.Width(100)))
+                    {
+                        pieceFreezeCount = 0;
+                    }
+                    EditorGUILayout.EndHorizontal();
+
+                    if (pieceFreezeCount > 0)
+                    {
+                        EditorGUILayout.HelpBox($"Блок буде замороженим! Для розморозки потрібно знищити {pieceFreezeCount} інш. блоків.", MessageType.Info);
+                    }
+
+                    EditorGUILayout.Space(4);
+                    pieceIsDoubleBlock = EditorGUILayout.ToggleLeft("▣ Подвійний блок (2 шари)", pieceIsDoubleBlock);
+                    if (pieceIsDoubleBlock)
+                    {
+                        pieceInnerColorType = (BlockColorType)EditorGUILayout.EnumPopup("Колір нижнього шару", pieceInnerColorType);
+                        EditorGUILayout.HelpBox("У вирізі видно колір нижнього шару. Перше знищення знімає лише верх — низ стає звичайним блоком.", MessageType.Info);
+                    }
                 }
             }
             else if (currentMode == PaintMode.SelectPiece)
@@ -369,26 +516,62 @@ namespace LegoPuzzle.Editor
 
                     selectedPiece.pieceId = EditorGUILayout.TextField("ID блоку", selectedPiece.pieceId);
                     selectedPiece.shape = (LegoShapeDefinition)EditorGUILayout.ObjectField("Форма", selectedPiece.shape, typeof(LegoShapeDefinition), false);
-                    selectedPiece.colorType = (BlockColorType)EditorGUILayout.EnumPopup("Колір деталі", selectedPiece.colorType);
-                    selectedPiece.moveRestriction = (MoveRestriction)EditorGUILayout.EnumPopup("Обмеження руху", selectedPiece.moveRestriction);
-                    selectedPiece.rotationSteps = EditorGUILayout.IntSlider($"Поворот ({selectedPiece.rotationSteps * 90}°)", selectedPiece.rotationSteps, 0, 3);
-                    selectedPiece.flipHorizontal = EditorGUILayout.Toggle("Дзеркало по X (Flip X)", selectedPiece.flipHorizontal);
 
-                    EditorGUILayout.Space(4);
-                    EditorGUILayout.BeginHorizontal();
-                    selectedPiece.freezeCount = EditorGUILayout.IntField("❄ Лічильник заморозки", Mathf.Max(0, selectedPiece.freezeCount));
-                    if (GUILayout.Button("0 (Розморозити)", GUILayout.Width(120)))
+                    selectedPiece.isMovableBarrier = EditorGUILayout.ToggleLeft("🧱 Рухомий бар'єр", selectedPiece.isMovableBarrier);
+                    if (selectedPiece.isMovableBarrier)
                     {
-                        selectedPiece.freezeCount = 0;
-                    }
-                    EditorGUILayout.EndHorizontal();
+                        selectedPiece.isRequiredForWin = false;
+                        selectedPiece.isDoubleBlock = false;
+                        if (selectedPiece.moveRestriction == MoveRestriction.Locked)
+                            selectedPiece.moveRestriction = MoveRestriction.Free;
 
-                    if (selectedPiece.freezeCount > 0)
+                        selectedPiece.moveRestriction = (MoveRestriction)EditorGUILayout.EnumPopup("Обмеження руху", selectedPiece.moveRestriction);
+                        if (selectedPiece.moveRestriction == MoveRestriction.Locked)
+                            selectedPiece.moveRestriction = MoveRestriction.Free;
+
+                        EditorGUILayout.Space(4);
+                        EditorGUILayout.BeginHorizontal();
+                        selectedPiece.freezeCount = EditorGUILayout.IntField("❄ Лічильник заморозки", Mathf.Max(0, selectedPiece.freezeCount));
+                        if (GUILayout.Button("0 (Розморозити)", GUILayout.Width(120)))
+                            selectedPiece.freezeCount = 0;
+                        EditorGUILayout.EndHorizontal();
+
+                        if (selectedPiece.freezeCount > 0)
+                            EditorGUILayout.HelpBox($"Бар'єр заморожений! Стане рухомим після знищення {selectedPiece.freezeCount} інших блоків.", MessageType.Warning);
+
+                        EditorGUILayout.HelpBox("Колір як у стін. Не виводиться у ворота, не потрібен для перемоги. Підтримує ❄ і слайдер ↔/↕.", MessageType.Info);
+                    }
+                    else
                     {
-                        EditorGUILayout.HelpBox($"Блок заморожений! Він стане рухомим тільки після знищення {selectedPiece.freezeCount} інших блоків.", MessageType.Warning);
-                    }
+                        selectedPiece.colorType = (BlockColorType)EditorGUILayout.EnumPopup("Колір деталі", selectedPiece.colorType);
+                        selectedPiece.moveRestriction = (MoveRestriction)EditorGUILayout.EnumPopup("Обмеження руху", selectedPiece.moveRestriction);
+                        selectedPiece.rotationSteps = EditorGUILayout.IntSlider($"Поворот ({selectedPiece.rotationSteps * 90}°)", selectedPiece.rotationSteps, 0, 3);
+                        selectedPiece.flipHorizontal = EditorGUILayout.Toggle("Дзеркало по X (Flip X)", selectedPiece.flipHorizontal);
 
-                    selectedPiece.isRequiredForWin = EditorGUILayout.Toggle("Потрібен для перемоги", selectedPiece.isRequiredForWin);
+                        EditorGUILayout.Space(4);
+                        EditorGUILayout.BeginHorizontal();
+                        selectedPiece.freezeCount = EditorGUILayout.IntField("❄ Лічильник заморозки", Mathf.Max(0, selectedPiece.freezeCount));
+                        if (GUILayout.Button("0 (Розморозити)", GUILayout.Width(120)))
+                        {
+                            selectedPiece.freezeCount = 0;
+                        }
+                        EditorGUILayout.EndHorizontal();
+
+                        if (selectedPiece.freezeCount > 0)
+                        {
+                            EditorGUILayout.HelpBox($"Блок заморожений! Він стане рухомим тільки після знищення {selectedPiece.freezeCount} інших блоків.", MessageType.Warning);
+                        }
+
+                        EditorGUILayout.Space(4);
+                        selectedPiece.isDoubleBlock = EditorGUILayout.ToggleLeft("▣ Подвійний блок (2 шари)", selectedPiece.isDoubleBlock);
+                        if (selectedPiece.isDoubleBlock)
+                        {
+                            selectedPiece.innerColorType = (BlockColorType)EditorGUILayout.EnumPopup("Колір нижнього шару", selectedPiece.innerColorType);
+                            EditorGUILayout.HelpBox("Перше знищення (вихід / молоток) знімає верхній шар; низ лишається як звичайний блок.", MessageType.Info);
+                        }
+
+                        selectedPiece.isRequiredForWin = EditorGUILayout.Toggle("Потрібен для перемоги", selectedPiece.isRequiredForWin);
+                    }
 
                     if (EditorGUI.EndChangeCheck())
                     {
@@ -564,13 +747,13 @@ namespace LegoPuzzle.Editor
                     }
                     GUI.backgroundColor = Color.white;
 
-                    EditorGUILayout.LabelField(p.colorType.ToString(), GUILayout.Width(75));
+                    EditorGUILayout.LabelField(p.isMovableBarrier ? "🧱 Бар'єр" : p.colorType.ToString(), GUILayout.Width(75));
                     string restrName = p.moveRestriction switch
                     {
                         MoveRestriction.HorizontalOnly => "↔ Гориз.",
                         MoveRestriction.VerticalOnly => "↕ Верт.",
                         MoveRestriction.Locked => "🔒 Заблок.",
-                        _ => "Вільний"
+                        _ => p.isMovableBarrier ? "🧱 Вільний" : "Вільний"
                     };
                     EditorGUILayout.LabelField(restrName, GUILayout.Width(80));
 
@@ -582,9 +765,21 @@ namespace LegoPuzzle.Editor
                         EditorUtility.SetDirty(targetLevel);
                     }
 
-                    if (p.freezeCount > 0)
+                    if (p.isMovableBarrier && p.freezeCount > 0)
+                    {
+                        EditorGUILayout.LabelField("🧱❄ Бар'єр", EditorStyles.miniLabel, GUILayout.Width(95));
+                    }
+                    else if (p.isMovableBarrier)
+                    {
+                        EditorGUILayout.LabelField("🧱 Не для win", EditorStyles.miniLabel, GUILayout.Width(95));
+                    }
+                    else if (p.freezeCount > 0)
                     {
                         EditorGUILayout.LabelField("❄ Заморожений", EditorStyles.miniLabel, GUILayout.Width(95));
+                    }
+                    else if (p.isDoubleBlock)
+                    {
+                        EditorGUILayout.LabelField($"▣→{p.innerColorType}", EditorStyles.miniLabel, GUILayout.Width(95));
                     }
                     else
                     {
@@ -641,14 +836,22 @@ namespace LegoPuzzle.Editor
                     // Створюємо нову деталь
                     LegoPieceData newPiece = new LegoPieceData
                     {
-                        pieceId = $"Piece_{targetLevel.pieces.Count + 1}",
+                        pieceId = pieceIsMovableBarrier
+                            ? $"Barrier_{targetLevel.pieces.Count + 1}"
+                            : $"Piece_{targetLevel.pieces.Count + 1}",
                         shape = selectedShape,
                         originPosition = new Vector2Int(x, y),
-                        rotationSteps = pieceRotation,
-                        flipHorizontal = pieceFlipHorizontal,
+                        rotationSteps = pieceIsMovableBarrier ? 0 : pieceRotation,
+                        flipHorizontal = pieceIsMovableBarrier ? false : pieceFlipHorizontal,
                         colorType = pieceColorType,
-                        moveRestriction = pieceRestriction,
-                        freezeCount = pieceFreezeCount
+                        moveRestriction = pieceIsMovableBarrier && pieceRestriction == MoveRestriction.Locked
+                            ? MoveRestriction.Free
+                            : pieceRestriction,
+                        freezeCount = pieceFreezeCount,
+                        isDoubleBlock = pieceIsMovableBarrier ? false : pieceIsDoubleBlock,
+                        innerColorType = pieceInnerColorType,
+                        isMovableBarrier = pieceIsMovableBarrier,
+                        isRequiredForWin = !pieceIsMovableBarrier
                     };
 
                     targetLevel.pieces.Add(newPiece);
@@ -680,6 +883,30 @@ namespace LegoPuzzle.Editor
                 }
             }
             return null;
+        }
+
+        private void TryAssignDefaultBarrierShape()
+        {
+            if (selectedShape != null)
+            {
+                string id = (string.IsNullOrEmpty(selectedShape.shapeId) ? selectedShape.name : selectedShape.shapeId).ToLowerInvariant();
+                if (id.Contains("1x1") || id.Contains("1_1"))
+                    return;
+            }
+
+            string[] guids = AssetDatabase.FindAssets("t:LegoShapeDefinition");
+            for (int i = 0; i < guids.Length; i++)
+            {
+                string path = AssetDatabase.GUIDToAssetPath(guids[i]);
+                var shape = AssetDatabase.LoadAssetAtPath<LegoShapeDefinition>(path);
+                if (shape == null) continue;
+                string name = (string.IsNullOrEmpty(shape.shapeId) ? shape.name : shape.shapeId).ToLowerInvariant();
+                if (name.Contains("1x1") || name.Contains("1_1"))
+                {
+                    selectedShape = shape;
+                    return;
+                }
+            }
         }
 
         private void FillAllCells(CellType type)

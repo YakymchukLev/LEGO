@@ -187,11 +187,22 @@ namespace LegoPuzzle.Runtime
                 levelLoader.PlaySmashSound(smashSound);
             }
 
-            // Знищення блоку зі спавном 3D-уламків
+            // Знищення блоку зі спавном 3D-уламків (подвійний блок — лише верхній шар)
             if (targetPiece != null)
             {
-                targetPiece.SpawnShatterDebris();
-                levelLoader.DestroyPieceWithHammer(targetPiece);
+                if (targetPiece.HasDoubleLayer)
+                {
+                    if (!targetPiece.TryPeelDoubleLayer())
+                    {
+                        targetPiece.SpawnShatterDebris();
+                        levelLoader.DestroyPieceWithHammer(targetPiece);
+                    }
+                }
+                else
+                {
+                    targetPiece.SpawnShatterDebris();
+                    levelLoader.DestroyPieceWithHammer(targetPiece);
+                }
             }
 
             // ==========================================

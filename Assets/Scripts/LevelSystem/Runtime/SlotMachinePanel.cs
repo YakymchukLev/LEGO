@@ -111,6 +111,12 @@ namespace LegoPuzzle.Runtime
 
         public static void OpenSlotMachine()
         {
+            if (!SlotsButton.IsSlotsUnlocked())
+            {
+                SlotsButton.ShowLockedFloatingHint();
+                return;
+            }
+
             if (Instance != null)
             {
                 Instance.Open();
@@ -234,6 +240,12 @@ namespace LegoPuzzle.Runtime
 
         public void Open()
         {
+            if (!SlotsButton.IsSlotsUnlocked())
+            {
+                SlotsButton.ShowLockedFloatingHint();
+                return;
+            }
+
             if (!gameObject.activeSelf)
             {
                 gameObject.SetActive(true);
@@ -704,13 +716,24 @@ namespace LegoPuzzle.Runtime
                 if (btn.name.Equals("SlotsButton", StringComparison.OrdinalIgnoreCase) ||
                     btn.GetComponent<SlotsButton>() != null)
                 {
+                    // Do not bind Open here — SlotsButton owns click + level lock gate.
                     btn.onClick.RemoveListener(Open);
-                    btn.onClick.AddListener(Open);
+
                     UIButtonShinePulse shine = btn.GetComponent<UIButtonShinePulse>();
                     if (shine != null)
-                        Destroy(shine);
+                    {
+                        if (Application.isPlaying)
+                            Destroy(shine);
+                        else
+                            DestroyImmediate(shine);
+                    }
 
                     UIButtonPressEffect.AttachHorizontalJelly(btn.gameObject);
+
+                    SlotsButton slots = btn.GetComponent<SlotsButton>();
+                    if (slots == null)
+                        slots = btn.gameObject.AddComponent<SlotsButton>();
+                    slots.RefreshLockVisual();
                 }
             }
         }

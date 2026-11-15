@@ -83,7 +83,8 @@ namespace LegoPuzzle.Editor
         private static void DrawPieceCell(Rect outerRect, Rect innerRect, LegoPieceData piece, int x, int y, float size)
         {
             // Force classic palette in editor — never touch SaveDataService/settings mid-OnGUI.
-            Color pieceColor = piece.GetColor(false);
+            bool isBarrier = piece.isMovableBarrier;
+            Color pieceColor = isBarrier ? ObstacleBaseColor : piece.GetColor(false);
 
             // Чітка темніша рамка навколо деталі LEGO
             Color pieceBorder = Color.Lerp(pieceColor, Color.black, 0.38f);
@@ -123,11 +124,39 @@ namespace LegoPuzzle.Editor
             EditorGUI.DrawRect(studRect, studBorder);
             EditorGUI.DrawRect(new Rect(studRect.x + 1f, studRect.y + 1f, studRect.width - 2f, studRect.height - 2f), studBg);
 
+            // Подвійний блок: виріз по центру з кольором нижнього шару
+            if (piece.isDoubleBlock && piece.freezeCount <= 0 && !isBarrier)
+            {
+                Color innerCol = piece.GetInnerColor();
+                float hole = Mathf.Round(studSize * 0.55f);
+                Rect holeRect = new Rect(
+                    Mathf.Round(studRect.center.x - hole * 0.5f),
+                    Mathf.Round(studRect.center.y - hole * 0.5f),
+                    hole,
+                    hole
+                );
+                EditorGUI.DrawRect(holeRect, Color.Lerp(innerCol, Color.black, 0.35f));
+                EditorGUI.DrawRect(new Rect(holeRect.x + 1f, holeRect.y + 1f, holeRect.width - 2f, holeRect.height - 2f), innerCol);
+            }
+
             // Іконка обмеження руху або лічильник заморозки або пін
             string glyph;
             if (piece.freezeCount > 0)
             {
-                glyph = $"❄{piece.freezeCount}";
+                glyph = isBarrier ? $"🧱❄{piece.freezeCount}" : $"❄{piece.freezeCount}";
+            }
+            else if (isBarrier)
+            {
+                glyph = piece.moveRestriction switch
+                {
+                    MoveRestriction.HorizontalOnly => "🧱↔",
+                    MoveRestriction.VerticalOnly => "🧱↕",
+                    _ => "🧱"
+                };
+            }
+            else if (piece.isDoubleBlock)
+            {
+                glyph = "▣";
             }
             else
             {
@@ -147,8 +176,9 @@ namespace LegoPuzzle.Editor
             GUIStyle style = GetStyle(textCol, fontSize);
 
             string freezeInfo = piece.freezeCount > 0 ? $"\n❄ Лічильник заморозки: {piece.freezeCount}" : "";
+            string doubleInfo = piece.isDoubleBlock ? $"\n▣ Подвійний → {piece.innerColorType}" : "";
             string flipInfo = piece.flipHorizontal ? "\nДзеркало X: так" : "";
-            string tooltip = $"🧩 Деталь: {piece.pieceId}\nКолір: {piece.colorType}\nРух: {piece.moveRestriction}{freezeInfo}{flipInfo}\nКлітинка: ({x}, {y})";
+            string tooltip = $"🧩 Деталь: {piece.pieceId}\nКолір: {piece.colorType}\nРух: {piece.moveRestriction}{freezeInfo}{doubleInfo}{flipInfo}\nКлітинка: ({x}, {y})";
             GUI.Label(innerRect, new GUIContent(glyph, tooltip), style);
         }
 
@@ -343,6 +373,7 @@ namespace LegoPuzzle.Editor
             DrawLegendBadge("🧩 Слайдер (V)", new Color(0.28f, 0.85f, 0.28f), new Color(0.1f, 0.1f, 0.1f), "↕");
             DrawLegendBadge("🧩 Вільна деталь", new Color(0.98f, 0.85f, 0.15f), new Color(0.1f, 0.1f, 0.1f), "●");
             DrawLegendBadge("❄ Заморожений", new Color(0.20f, 0.65f, 0.95f), Color.white, "❄");
+            DrawLegendBadge("🧱 Рухомий бар'єр", ObstacleBaseColor, Color.white, "🧱");
             GUILayout.FlexibleSpace();
             EditorGUILayout.EndHorizontal();
 

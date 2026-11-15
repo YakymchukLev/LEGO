@@ -198,13 +198,13 @@ namespace LegoPuzzle.Runtime
 
         [Header("Бустер Заморозки Часу (Time Freeze Booster)")]
         [Tooltip("Тривалість дії бустера заморозки часу (у секундах)")]
-        [SerializeField] private float freezeDuration = 10f;
+        [SerializeField] private float freezeDuration = 15f;
 
         [Tooltip("Колір тексту таймера під час заморозки (крижаний блакитний)")]
         [SerializeField] private Color timerFreezeColor = new Color(0.35f, 0.85f, 1f, 1f);
 
-        [Tooltip("Чи додавати іконки сніжинки ❄ до таймера під час заморозки")]
-        [SerializeField] private bool showSnowflakeIcon = true;
+        [Tooltip("Чи додавати іконки сніжинки ❄ до таймера під час заморозки (шрифт часто показує □)")]
+        [SerializeField] private bool showSnowflakeIcon = false;
 
         [Tooltip("Звук активації заморозки часу (опціонально)")]
         [SerializeField] private AudioClip freezeSound;
@@ -625,58 +625,58 @@ namespace LegoPuzzle.Runtime
 
             if (!IsGameplayActive) return;
 
+            // Freeze duration must tick even before the first move (booster can be used immediately).
+            if (IsTimeFrozen)
+            {
+                RemainingFreezeTime -= Time.unscaledDeltaTime;
+                if (RemainingFreezeTime <= 0f)
+                {
+                    UnfreezeTime();
+                }
+                else
+                {
+                    UpdateTimerUI(RemainingTime);
+                }
+                return;
+            }
+
             if (CurrentLevel != null && CurrentLevel.timeLimitSeconds > 0)
             {
                 // Таймер не починає відлік, доки гравець не здійснить свій перший рух блоком
                 if (!HasFirstMoveOccurred) return;
 
-                if (IsTimeFrozen)
+                RemainingTime -= Time.deltaTime;
+
+                if (RemainingTime <= 0f)
                 {
-                    RemainingFreezeTime -= Time.deltaTime;
-                    if (RemainingFreezeTime <= 0f)
+                    RemainingTime = 0f;
+                    IsGameplayActive = false;
+                    UpdateTimerUI(0f);
+                    OnTimerUpdated?.Invoke(0f);
+                    PlayLevelLostSound();
+                    OnLevelLost?.Invoke();
+                    Debug.Log("<color=red>Time's up! Level failed.</color>");
+
+                    // Deduct heart on level loss
+                    if (HeartManager.Instance != null)
                     {
-                        UnfreezeTime();
+                        HeartManager.Instance.DeductHeart();
                     }
-                    else
+
+                    if (losePanel != null)
                     {
-                        UpdateTimerUI(RemainingTime);
+                        UIButtonPressEffect.AttachToAllIn(losePanel);
+                        UIPanelSlideIn.AttachTo(losePanel).EnableImpactShake(true);
+                        UILostPanelProgress.AttachTo(losePanel);
+                        UILegoBrickDebris.AttachTo(losePanel);
+                        AttachPrimaryButtonPolish(losePanel);
+                        losePanel.SetActive(true);
                     }
                 }
                 else
                 {
-                    RemainingTime -= Time.deltaTime;
-
-                    if (RemainingTime <= 0f)
-                    {
-                        RemainingTime = 0f;
-                        IsGameplayActive = false;
-                        UpdateTimerUI(0f);
-                        OnTimerUpdated?.Invoke(0f);
-                        PlayLevelLostSound();
-                        OnLevelLost?.Invoke();
-                        Debug.Log("<color=red>Time's up! Level failed.</color>");
-
-                        // Deduct heart on level loss
-                        if (HeartManager.Instance != null)
-                        {
-                            HeartManager.Instance.DeductHeart();
-                        }
-
-                        if (losePanel != null)
-                        {
-                            UIButtonPressEffect.AttachToAllIn(losePanel);
-                            UIPanelSlideIn.AttachTo(losePanel).EnableImpactShake(true);
-                            UILostPanelProgress.AttachTo(losePanel);
-                            UILegoBrickDebris.AttachTo(losePanel);
-                            AttachPrimaryButtonPolish(losePanel);
-                            losePanel.SetActive(true);
-                        }
-                    }
-                    else
-                    {
-                        UpdateTimerUI(RemainingTime);
-                        OnTimerUpdated?.Invoke(RemainingTime);
-                    }
+                    UpdateTimerUI(RemainingTime);
+                    OnTimerUpdated?.Invoke(RemainingTime);
                 }
             }
         }
@@ -722,6 +722,7 @@ namespace LegoPuzzle.Runtime
             IsTimeFrozen = false;
             RemainingFreezeTime = 0f;
             HasFirstMoveOccurred = false;
+            timerTextRefResolved = false;
             piecesExited = 0;
             requiredPiecesToWin = 0;
             isLevelWon = false;
@@ -751,11 +752,9 @@ namespace LegoPuzzle.Runtime
 
             OnLevelLoaded?.Invoke(levelData.levelIndex);
 
-            // Перевіряємо, чи є блоки, які одразу стоять впритик до воріт свого кольору
+            // Авто-вихід блоків біля воріт, потім рука-туторіал (після авто-виходу,
+            // щоб Notify/exit не прибрали руку одразу після показу).
             CheckAndTriggerAutoExits();
-
-            // Перевіряємо, чи потрібно показати туторіал на 1 рівні
-            EnsureFirstLevelTutorialHand();
         }
 
         /// <summary>
@@ -1200,7 +1199,12 @@ namespace LegoPuzzle.Runtime
         /// </summary>
         public void CheckAndTriggerAutoExits()
         {
-            if (!gameObject.activeInHierarchy || isLevelWon) return;
+            if (!gameObject.activeInHierarchy || isLevelWon)
+            {
+                EnsureFirstLevelTutorialHand();
+                return;
+            }
+
             if (autoExitCoroutine != null) StopCoroutine(autoExitCoroutine);
             autoExitCoroutine = StartCoroutine(AutoExitRoutine());
         }
@@ -1223,13 +1227,17 @@ namespace LegoPuzzle.Runtime
             }
 
             autoExitCoroutine = null;
+
+            // Рука лише після авто-виходів і тільки для реального ходу гравця (не auto-exit).
+            EnsureFirstLevelTutorialHand();
         }
 
         private int moveSoundToggle = 0;
 
         public void PlayPieceMoveSound()
         {
-            NotifyBlockMoved();
+            // Do NOT call NotifyBlockMoved here — sounds play on auto/step paths too.
+            // First-move / tutorial dismiss must come only from real player moves.
 
             if (Time.time - lastStepSoundTime < 0.05f) return;
             lastStepSoundTime = Time.time;
@@ -1326,6 +1334,7 @@ namespace LegoPuzzle.Runtime
             }
 
             UpdateTimerUI(RemainingTime);
+            StartFreezeBreathAnimation();
             OnTimeFrozen?.Invoke(RemainingFreezeTime);
             Debug.Log($"<color=cyan>❄ Бустер заморозки активовано на {seconds} сек! (Залишилось: {RemainingFreezeTime:F1}с)</color>");
         }
@@ -1339,6 +1348,7 @@ namespace LegoPuzzle.Runtime
 
             IsTimeFrozen = false;
             RemainingFreezeTime = 0f;
+            StopFreezeBreathAnimation(restore: true);
 
             if (unfreezeSound != null && audioSource != null)
             {
@@ -1394,33 +1404,18 @@ namespace LegoPuzzle.Runtime
             float scaleX = 1f;
             float scaleY = 1f;
 
+            // Freeze breathe (fontSize + color) runs in FreezeBreathRoutine — don't fight it here.
             if (IsTimeFrozen)
             {
-                // Оформлення таймера в крижаному стилі під час заморозки часу
-                if (showSnowflakeIcon)
-                {
-                    formatted = $"❄ {formatted} ❄";
-                }
-
-                if (RemainingFreezeTime <= 3f)
-                {
-                    // Останні 3 секунди: помітне блимання, яке сигналізує про завершення заморозки
-                    bool blink = Mathf.Sin(RemainingFreezeTime * 14f) > 0f;
-                    currentColor = blink ? timerFreezeColor : Color.white;
-                    float pulse = 1f + 0.12f * Mathf.Abs(Mathf.Sin(RemainingFreezeTime * 8f));
-                    scaleX = pulse;
-                    scaleY = pulse;
-                }
-                else
-                {
-                    // М'яке крижане дихання
-                    float breath = Mathf.Sin(Time.time * 3f) * 0.05f;
-                    currentColor = Color.Lerp(timerFreezeColor, Color.white, 0.2f + 0.2f * Mathf.Sin(Time.time * 2.5f));
-                    scaleX = 1.05f + breath;
-                    scaleY = 1.05f + breath;
-                }
+                // Keep digits updated; visual pulse is handled by the coroutine on TimerText.
+                if (timerTextTMP != null)
+                    timerTextTMP.text = formatted;
+                if (timerTextLegacy != null)
+                    timerTextLegacy.text = formatted;
+                return;
             }
-            else if (remainingSeconds <= 10f && remainingSeconds > 0f)
+
+            if (remainingSeconds <= 10f && remainingSeconds > 0f)
             {
                 // Частка часу поточної секунди (від 0.0 на початку кожної секунди до 1.0 в кінці)
                 float fraction = remainingSeconds - Mathf.Floor(remainingSeconds);
@@ -1465,10 +1460,16 @@ namespace LegoPuzzle.Runtime
 
             Vector3 targetScale = new Vector3(scaleX, scaleY, 1f);
 
+            if (timerContainer != null && timerContainer.transform.localScale != Vector3.one)
+                timerContainer.transform.localScale = Vector3.one;
+
+            EnsureTimerTextRef();
+
             if (timerTextTMP != null)
             {
                 timerTextTMP.text = formatted;
                 timerTextTMP.color = currentColor;
+                // Low-time warning may pulse scale; freeze uses fontSize breathe instead.
                 timerTextTMP.transform.localScale = targetScale;
             }
             if (timerTextLegacy != null)
@@ -1477,6 +1478,100 @@ namespace LegoPuzzle.Runtime
                 timerTextLegacy.color = currentColor;
                 timerTextLegacy.transform.localScale = targetScale;
             }
+        }
+
+        private bool timerTextRefResolved;
+        private Coroutine freezeBreathRoutine;
+        private float timerTextBaseFontSize = -1f;
+        private bool timerTextHadAutoSize;
+
+        private void EnsureTimerTextRef()
+        {
+            if (timerTextRefResolved) return;
+            timerTextRefResolved = true;
+
+            if (timerTextTMP != null &&
+                timerTextTMP.gameObject.name.IndexOf("TimerText", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                return;
+
+            if (timerContainer != null)
+            {
+                Transform textTr = timerContainer.transform.Find("TimerText");
+                if (textTr != null)
+                {
+                    var tmp = textTr.GetComponent<TMP_Text>();
+                    if (tmp != null)
+                        timerTextTMP = tmp;
+                }
+            }
+        }
+
+        private void StartFreezeBreathAnimation()
+        {
+            StopFreezeBreathAnimation(restore: false);
+            freezeBreathRoutine = StartCoroutine(FreezeBreathRoutine());
+        }
+
+        private void StopFreezeBreathAnimation(bool restore)
+        {
+            if (freezeBreathRoutine != null)
+            {
+                StopCoroutine(freezeBreathRoutine);
+                freezeBreathRoutine = null;
+            }
+
+            if (!restore || timerTextTMP == null) return;
+
+            if (timerTextBaseFontSize > 0f)
+                timerTextTMP.fontSize = timerTextBaseFontSize;
+            timerTextTMP.enableAutoSizing = timerTextHadAutoSize;
+            timerTextTMP.transform.localScale = Vector3.one;
+            timerTextTMP.color = timerNormalColor;
+            timerTextBaseFontSize = -1f;
+        }
+
+        private IEnumerator FreezeBreathRoutine()
+        {
+            EnsureTimerTextRef();
+            if (timerTextTMP == null) yield break;
+
+            // Stretch-anchored TimerText ignores scale visually — breathe via fontSize.
+            timerTextTMP.transform.localScale = Vector3.one;
+            timerTextHadAutoSize = timerTextTMP.enableAutoSizing;
+            timerTextTMP.enableAutoSizing = false;
+            timerTextBaseFontSize = timerTextTMP.fontSize > 1f ? timerTextTMP.fontSize : 48f;
+
+            while (IsTimeFrozen && timerTextTMP != null)
+            {
+                // Failsafe: if Update somehow skipped the countdown, still unfreeze.
+                if (RemainingFreezeTime <= 0f)
+                {
+                    UnfreezeTime();
+                    break;
+                }
+
+                float t = Time.unscaledTime;
+                // Full inhale/exhale around base size (not a one-way grow).
+                float wave = Mathf.Sin(t * 2.8f); // -1..1
+                float mul = 1f + wave * 0.18f;   // 0.82 .. 1.18
+                timerTextTMP.fontSize = timerTextBaseFontSize * mul;
+
+                float colorWave = 0.5f + 0.5f * Mathf.Sin(t * 2.4f);
+                Color c = Color.Lerp(timerFreezeColor, Color.white, colorWave * 0.55f);
+                if (RemainingFreezeTime <= 3f)
+                {
+                    bool blink = Mathf.Sin(RemainingFreezeTime * 14f) > 0f;
+                    c = blink ? timerFreezeColor : Color.white;
+                    mul = 1f + 0.22f * Mathf.Sin(RemainingFreezeTime * 10f);
+                    timerTextTMP.fontSize = timerTextBaseFontSize * mul;
+                }
+
+                timerTextTMP.color = c;
+                yield return null;
+            }
+
+            freezeBreathRoutine = null;
+            StopFreezeBreathAnimation(restore: true);
         }
 
         public void EnsureUIElements()
@@ -1807,26 +1902,47 @@ namespace LegoPuzzle.Runtime
                 var legacy = btn.GetComponentInChildren<Text>(true);
                 if (legacy != null) btnText += " " + legacy.text.ToLowerInvariant();
 
-                if (btnName.Contains("80") || btnText.Contains("80"))
-                {
-                    btn.onClick = new Button.ButtonClickedEvent();
-                    btn.onClick.AddListener(() => ClaimWinRewardAndContinue(80));
-                }
-                else if (btnName.Contains("40") || btnText.Contains("40"))
+                // Gold/ad button (label/name often "80") → 40 coins. Green/next (often "40") → 20.
+                if (btnName.Contains("80") || btnText.Contains("80") || btnName.Contains("gold") || btnName.Contains("adreward"))
                 {
                     btn.onClick = new Button.ButtonClickedEvent();
                     btn.onClick.AddListener(() => ClaimWinRewardAndContinue(40));
+                    SetWinButtonCoinLabel(btn, 40);
                 }
-                else if (btnName.Contains("next") || btnName.Contains("continue") || btnText.Contains("далі") || btnText.Contains("next") || btnText.Contains("continue"))
+                else if (btnName.Contains("40") || btnText.Contains("40")
+                         || btnName.Contains("next") || btnName.Contains("continue") || btnName.Contains("green")
+                         || btnText.Contains("далі") || btnText.Contains("next") || btnText.Contains("continue"))
                 {
                     btn.onClick = new Button.ButtonClickedEvent();
-                    btn.onClick.AddListener(() => ClaimWinRewardAndContinue(40));
+                    btn.onClick.AddListener(() => ClaimWinRewardAndContinue(20));
+                    SetWinButtonCoinLabel(btn, 20);
                 }
                 else if (btnName.Contains("menu") || btnText.Contains("меню") || btnText.Contains("menu") || btnText.Contains("вийти"))
                 {
                     btn.onClick = new Button.ButtonClickedEvent();
                     btn.onClick.AddListener(LoadMenuScene);
                 }
+            }
+        }
+
+        private static void SetWinButtonCoinLabel(Button btn, int coins)
+        {
+            if (btn == null) return;
+            var tmp = btn.GetComponentInChildren<TMP_Text>(true);
+            if (tmp != null)
+            {
+                string t = tmp.text ?? "";
+                // Replace common reward amounts in label without wiping non-numeric CTA text entirely.
+                if (t.Contains("80") || t.Contains("40") || t.Contains("20"))
+                    tmp.text = System.Text.RegularExpressions.Regex.Replace(t, @"\b(80|40|20)\b", coins.ToString());
+            }
+
+            var legacy = btn.GetComponentInChildren<Text>(true);
+            if (legacy != null)
+            {
+                string t = legacy.text ?? "";
+                if (t.Contains("80") || t.Contains("40") || t.Contains("20"))
+                    legacy.text = System.Text.RegularExpressions.Regex.Replace(t, @"\b(80|40|20)\b", coins.ToString());
             }
         }
 
@@ -1840,7 +1956,15 @@ namespace LegoPuzzle.Runtime
                 CoinManager.Instance.AddCoins(coinsReward);
             }
 
-            LoadNextLevel();
+            // After clearing level 5+, return to Menu instead of auto-loading the next level.
+            int completedLevelNumber = CurrentLevel != null
+                ? CurrentLevel.levelIndex
+                : (currentLevelIndex + 1);
+
+            if (completedLevelNumber >= 5)
+                LoadMenuScene();
+            else
+                LoadNextLevel();
         }
 
 
@@ -2239,10 +2363,13 @@ namespace LegoPuzzle.Runtime
 
         private void HandlePieceExited(LegoPieceView piece)
         {
-            NotifyBlockMoved();
+            // Auto-exit must not count as the player's first move (that instantly dismisses the L1 hand).
+            bool wasRequired = piece != null && piece.PieceData != null && piece.PieceData.isRequiredForWin
+                               && !piece.PieceData.isMovableBarrier;
             RemoveActivePiece(piece);
             NotifyPieceDestroyed(piece);
-            HandleRequiredPieceVictoryCheck(fromHammer: false);
+            if (wasRequired)
+                HandleRequiredPieceVictoryCheck(fromHammer: false);
         }
 
         /// <summary>

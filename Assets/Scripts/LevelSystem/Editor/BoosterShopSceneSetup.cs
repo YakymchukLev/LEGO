@@ -21,6 +21,10 @@ namespace LegoPuzzle.Editor
 
         private static void CheckAndSetupBoosterShop()
         {
+            // Never mutate / MarkSceneDirty during Play Mode (cold start Menu→Game trips this).
+            if (EditorApplication.isPlayingOrWillChangePlaymode || Application.isPlaying)
+                return;
+
             var activeScene = UnityEngine.SceneManagement.SceneManager.GetActiveScene();
             if (activeScene == null || !activeScene.isLoaded) return;
 
@@ -71,6 +75,9 @@ namespace LegoPuzzle.Editor
         [MenuItem("LEGO/Setup Booster Balance Badges in Scene")]
         public static void SetupBoosterBadges()
         {
+            if (EditorApplication.isPlayingOrWillChangePlaymode || Application.isPlaying)
+                return;
+
             var freeze = Object.FindAnyObjectByType<TimeFreezeBooster>(FindObjectsInactive.Include);
             if (freeze != null)
             {

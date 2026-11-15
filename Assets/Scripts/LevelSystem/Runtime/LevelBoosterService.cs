@@ -30,9 +30,17 @@ namespace LegoPuzzle.Runtime
             var loader = Loader;
             if (loader == null) return;
 
+            // Double block: hammer only peels the top layer; piece stays on the board.
+            if (piece.HasDoubleLayer)
+            {
+                piece.TryPeelDoubleLayer();
+                return;
+            }
+
             loader.NotifyBlockMoved();
 
-            bool wasRequired = piece.PieceData != null && piece.PieceData.isRequiredForWin;
+            bool wasRequired = piece.PieceData != null && piece.PieceData.isRequiredForWin
+                               && !piece.PieceData.isMovableBarrier;
 
             loader.RemoveActivePiece(piece);
 

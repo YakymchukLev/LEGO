@@ -14,62 +14,62 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   levelIndex: 31
   levelTitle: Level 31
-  timeLimitSeconds: 95
+  timeLimitSeconds: 120
   movesLimit: 0
   gridWidth: 8
-  gridHeight: 12
+  gridHeight: 8
   cells:
   - position: {x: 0, y: 0}
-    cellType: 1
+    cellType: 5
     exitDirection: 0
     gateColorType: 9
     customGateColor: {r: 1, g: 1, b: 1, a: 1}
     gateAlignment: 1
   - position: {x: 1, y: 0}
-    cellType: 1
+    cellType: 4
     exitDirection: 0
     gateColorType: 9
     customGateColor: {r: 1, g: 1, b: 1, a: 1}
     gateAlignment: 1
   - position: {x: 2, y: 0}
-    cellType: 1
+    cellType: 4
     exitDirection: 0
     gateColorType: 9
     customGateColor: {r: 1, g: 1, b: 1, a: 1}
     gateAlignment: 1
   - position: {x: 3, y: 0}
-    cellType: 1
+    cellType: 4
     exitDirection: 0
     gateColorType: 9
     customGateColor: {r: 1, g: 1, b: 1, a: 1}
     gateAlignment: 1
   - position: {x: 4, y: 0}
-    cellType: 1
+    cellType: 4
     exitDirection: 0
     gateColorType: 9
     customGateColor: {r: 1, g: 1, b: 1, a: 1}
     gateAlignment: 1
   - position: {x: 5, y: 0}
-    cellType: 1
-    exitDirection: 0
-    gateColorType: 9
+    cellType: 6
+    exitDirection: 1
+    gateColorType: 3
     customGateColor: {r: 1, g: 1, b: 1, a: 1}
-    gateAlignment: 1
+    gateAlignment: 0
   - position: {x: 6, y: 0}
-    cellType: 1
-    exitDirection: 0
-    gateColorType: 9
+    cellType: 6
+    exitDirection: 1
+    gateColorType: 3
     customGateColor: {r: 1, g: 1, b: 1, a: 1}
-    gateAlignment: 1
+    gateAlignment: 0
   - position: {x: 7, y: 0}
-    cellType: 1
-    exitDirection: 0
+    cellType: 5
+    exitDirection: 2
     gateColorType: 9
     customGateColor: {r: 1, g: 1, b: 1, a: 1}
     gateAlignment: 1
   - position: {x: 0, y: 1}
-    cellType: 1
-    exitDirection: 0
+    cellType: 4
+    exitDirection: 3
     gateColorType: 9
     customGateColor: {r: 1, g: 1, b: 1, a: 1}
     gateAlignment: 1
@@ -110,14 +110,14 @@ MonoBehaviour:
     customGateColor: {r: 1, g: 1, b: 1, a: 1}
     gateAlignment: 1
   - position: {x: 7, y: 1}
-    cellType: 1
-    exitDirection: 0
-    gateColorType: 9
+    cellType: 6
+    exitDirection: 3
+    gateColorType: 2
     customGateColor: {r: 1, g: 1, b: 1, a: 1}
-    gateAlignment: 1
+    gateAlignment: 2
   - position: {x: 0, y: 2}
-    cellType: 1
-    exitDirection: 0
+    cellType: 4
+    exitDirection: 3
     gateColorType: 9
     customGateColor: {r: 1, g: 1, b: 1, a: 1}
     gateAlignment: 1
@@ -158,14 +158,14 @@ MonoBehaviour:
     customGateColor: {r: 1, g: 1, b: 1, a: 1}
     gateAlignment: 1
   - position: {x: 7, y: 2}
-    cellType: 1
-    exitDirection: 0
-    gateColorType: 9
+    cellType: 6
+    exitDirection: 3
+    gateColorType: 2
     customGateColor: {r: 1, g: 1, b: 1, a: 1}
-    gateAlignment: 1
+    gateAlignment: 2
   - position: {x: 0, y: 3}
-    cellType: 1
-    exitDirection: 0
+    cellType: 4
+    exitDirection: 3
     gateColorType: 9
     customGateColor: {r: 1, g: 1, b: 1, a: 1}
     gateAlignment: 1
@@ -182,13 +182,13 @@ MonoBehaviour:
     customGateColor: {r: 1, g: 1, b: 1, a: 1}
     gateAlignment: 1
   - position: {x: 3, y: 3}
-    cellType: 1
+    cellType: 2
     exitDirection: 0
     gateColorType: 9
     customGateColor: {r: 1, g: 1, b: 1, a: 1}
     gateAlignment: 1
   - position: {x: 4, y: 3}
-    cellType: 1
+    cellType: 2
     exitDirection: 0
     gateColorType: 9
     customGateColor: {r: 1, g: 1, b: 1, a: 1}
@@ -206,14 +206,14 @@ MonoBehaviour:
     customGateColor: {r: 1, g: 1, b: 1, a: 1}
     gateAlignment: 1
   - position: {x: 7, y: 3}
-    cellType: 1
-    exitDirection: 0
+    cellType: 4
+    exitDirection: 2
     gateColorType: 9
     customGateColor: {r: 1, g: 1, b: 1, a: 1}
     gateAlignment: 1
   - position: {x: 0, y: 4}
-    cellType: 1
-    exitDirection: 0
+    cellType: 4
+    exitDirection: 3
     gateColorType: 9
     customGateColor: {r: 1, g: 1, b: 1, a: 1}
     gateAlignment: 1
@@ -230,13 +230,13 @@ MonoBehaviour:
     customGateColor: {r: 1, g: 1, b: 1, a: 1}
     gateAlignment: 1
   - position: {x: 3, y: 4}
-    cellType: 1
+    cellType: 2
     exitDirection: 0
     gateColorType: 9
     customGateColor: {r: 1, g: 1, b: 1, a: 1}
     gateAlignment: 1
   - position: {x: 4, y: 4}
-    cellType: 1
+    cellType: 2
     exitDirection: 0
     gateColorType: 9
     customGateColor: {r: 1, g: 1, b: 1, a: 1}
@@ -254,14 +254,14 @@ MonoBehaviour:
     customGateColor: {r: 1, g: 1, b: 1, a: 1}
     gateAlignment: 1
   - position: {x: 7, y: 4}
-    cellType: 1
-    exitDirection: 0
+    cellType: 4
+    exitDirection: 2
     gateColorType: 9
     customGateColor: {r: 1, g: 1, b: 1, a: 1}
     gateAlignment: 1
   - position: {x: 0, y: 5}
-    cellType: 1
-    exitDirection: 0
+    cellType: 4
+    exitDirection: 3
     gateColorType: 9
     customGateColor: {r: 1, g: 1, b: 1, a: 1}
     gateAlignment: 1
@@ -302,17 +302,17 @@ MonoBehaviour:
     customGateColor: {r: 1, g: 1, b: 1, a: 1}
     gateAlignment: 1
   - position: {x: 7, y: 5}
-    cellType: 1
-    exitDirection: 0
+    cellType: 4
+    exitDirection: 2
     gateColorType: 9
     customGateColor: {r: 1, g: 1, b: 1, a: 1}
     gateAlignment: 1
   - position: {x: 0, y: 6}
-    cellType: 1
-    exitDirection: 0
-    gateColorType: 9
+    cellType: 6
+    exitDirection: 2
+    gateColorType: 4
     customGateColor: {r: 1, g: 1, b: 1, a: 1}
-    gateAlignment: 1
+    gateAlignment: 3
   - position: {x: 1, y: 6}
     cellType: 1
     exitDirection: 0
@@ -350,264 +350,62 @@ MonoBehaviour:
     customGateColor: {r: 1, g: 1, b: 1, a: 1}
     gateAlignment: 1
   - position: {x: 7, y: 6}
-    cellType: 1
-    exitDirection: 0
+    cellType: 4
+    exitDirection: 2
     gateColorType: 9
     customGateColor: {r: 1, g: 1, b: 1, a: 1}
     gateAlignment: 1
   - position: {x: 0, y: 7}
-    cellType: 1
-    exitDirection: 0
+    cellType: 5
+    exitDirection: 3
     gateColorType: 9
     customGateColor: {r: 1, g: 1, b: 1, a: 1}
     gateAlignment: 1
   - position: {x: 1, y: 7}
-    cellType: 1
-    exitDirection: 0
+    cellType: 4
+    exitDirection: 1
     gateColorType: 9
     customGateColor: {r: 1, g: 1, b: 1, a: 1}
     gateAlignment: 1
   - position: {x: 2, y: 7}
-    cellType: 1
+    cellType: 6
     exitDirection: 0
-    gateColorType: 9
+    gateColorType: 0
     customGateColor: {r: 1, g: 1, b: 1, a: 1}
     gateAlignment: 1
   - position: {x: 3, y: 7}
-    cellType: 1
-    exitDirection: 0
+    cellType: 4
+    exitDirection: 1
     gateColorType: 9
     customGateColor: {r: 1, g: 1, b: 1, a: 1}
     gateAlignment: 1
   - position: {x: 4, y: 7}
-    cellType: 1
-    exitDirection: 0
+    cellType: 4
+    exitDirection: 1
     gateColorType: 9
     customGateColor: {r: 1, g: 1, b: 1, a: 1}
     gateAlignment: 1
   - position: {x: 5, y: 7}
-    cellType: 1
+    cellType: 6
     exitDirection: 0
-    gateColorType: 9
+    gateColorType: 1
     customGateColor: {r: 1, g: 1, b: 1, a: 1}
     gateAlignment: 1
   - position: {x: 6, y: 7}
-    cellType: 1
+    cellType: 6
     exitDirection: 0
-    gateColorType: 9
+    gateColorType: 7
     customGateColor: {r: 1, g: 1, b: 1, a: 1}
     gateAlignment: 1
   - position: {x: 7, y: 7}
-    cellType: 1
-    exitDirection: 0
-    gateColorType: 9
-    customGateColor: {r: 1, g: 1, b: 1, a: 1}
-    gateAlignment: 1
-  - position: {x: 0, y: 8}
-    cellType: 1
-    exitDirection: 0
-    gateColorType: 9
-    customGateColor: {r: 1, g: 1, b: 1, a: 1}
-    gateAlignment: 1
-  - position: {x: 1, y: 8}
-    cellType: 1
-    exitDirection: 0
-    gateColorType: 9
-    customGateColor: {r: 1, g: 1, b: 1, a: 1}
-    gateAlignment: 1
-  - position: {x: 2, y: 8}
-    cellType: 1
-    exitDirection: 0
-    gateColorType: 9
-    customGateColor: {r: 1, g: 1, b: 1, a: 1}
-    gateAlignment: 1
-  - position: {x: 3, y: 8}
-    cellType: 1
-    exitDirection: 0
-    gateColorType: 9
-    customGateColor: {r: 1, g: 1, b: 1, a: 1}
-    gateAlignment: 1
-  - position: {x: 4, y: 8}
-    cellType: 1
-    exitDirection: 0
-    gateColorType: 9
-    customGateColor: {r: 1, g: 1, b: 1, a: 1}
-    gateAlignment: 1
-  - position: {x: 5, y: 8}
-    cellType: 1
-    exitDirection: 0
-    gateColorType: 9
-    customGateColor: {r: 1, g: 1, b: 1, a: 1}
-    gateAlignment: 1
-  - position: {x: 6, y: 8}
-    cellType: 1
-    exitDirection: 0
-    gateColorType: 9
-    customGateColor: {r: 1, g: 1, b: 1, a: 1}
-    gateAlignment: 1
-  - position: {x: 7, y: 8}
-    cellType: 1
-    exitDirection: 0
-    gateColorType: 9
-    customGateColor: {r: 1, g: 1, b: 1, a: 1}
-    gateAlignment: 1
-  - position: {x: 0, y: 9}
-    cellType: 1
-    exitDirection: 0
-    gateColorType: 9
-    customGateColor: {r: 1, g: 1, b: 1, a: 1}
-    gateAlignment: 1
-  - position: {x: 1, y: 9}
-    cellType: 1
-    exitDirection: 0
-    gateColorType: 9
-    customGateColor: {r: 1, g: 1, b: 1, a: 1}
-    gateAlignment: 1
-  - position: {x: 2, y: 9}
-    cellType: 1
-    exitDirection: 0
-    gateColorType: 9
-    customGateColor: {r: 1, g: 1, b: 1, a: 1}
-    gateAlignment: 1
-  - position: {x: 3, y: 9}
-    cellType: 1
-    exitDirection: 0
-    gateColorType: 9
-    customGateColor: {r: 1, g: 1, b: 1, a: 1}
-    gateAlignment: 1
-  - position: {x: 4, y: 9}
-    cellType: 1
-    exitDirection: 0
-    gateColorType: 9
-    customGateColor: {r: 1, g: 1, b: 1, a: 1}
-    gateAlignment: 1
-  - position: {x: 5, y: 9}
-    cellType: 1
-    exitDirection: 0
-    gateColorType: 9
-    customGateColor: {r: 1, g: 1, b: 1, a: 1}
-    gateAlignment: 1
-  - position: {x: 6, y: 9}
-    cellType: 1
-    exitDirection: 0
-    gateColorType: 9
-    customGateColor: {r: 1, g: 1, b: 1, a: 1}
-    gateAlignment: 1
-  - position: {x: 7, y: 9}
-    cellType: 1
-    exitDirection: 0
-    gateColorType: 9
-    customGateColor: {r: 1, g: 1, b: 1, a: 1}
-    gateAlignment: 1
-  - position: {x: 0, y: 10}
-    cellType: 1
-    exitDirection: 0
-    gateColorType: 9
-    customGateColor: {r: 1, g: 1, b: 1, a: 1}
-    gateAlignment: 1
-  - position: {x: 1, y: 10}
-    cellType: 1
-    exitDirection: 0
-    gateColorType: 9
-    customGateColor: {r: 1, g: 1, b: 1, a: 1}
-    gateAlignment: 1
-  - position: {x: 2, y: 10}
-    cellType: 3
-    exitDirection: 0
-    gateColorType: 1
-    customGateColor: {r: 1, g: 1, b: 1, a: 1}
-    gateAlignment: 1
-  - position: {x: 3, y: 10}
-    cellType: 3
-    exitDirection: 0
-    gateColorType: 1
-    customGateColor: {r: 1, g: 1, b: 1, a: 1}
-    gateAlignment: 1
-  - position: {x: 4, y: 10}
-    cellType: 3
-    exitDirection: 0
-    gateColorType: 1
-    customGateColor: {r: 1, g: 1, b: 1, a: 1}
-    gateAlignment: 1
-  - position: {x: 5, y: 10}
-    cellType: 1
-    exitDirection: 0
-    gateColorType: 9
-    customGateColor: {r: 1, g: 1, b: 1, a: 1}
-    gateAlignment: 1
-  - position: {x: 6, y: 10}
-    cellType: 1
-    exitDirection: 0
-    gateColorType: 9
-    customGateColor: {r: 1, g: 1, b: 1, a: 1}
-    gateAlignment: 1
-  - position: {x: 7, y: 10}
-    cellType: 1
-    exitDirection: 0
-    gateColorType: 9
-    customGateColor: {r: 1, g: 1, b: 1, a: 1}
-    gateAlignment: 1
-  - position: {x: 0, y: 11}
-    cellType: 1
-    exitDirection: 0
-    gateColorType: 9
-    customGateColor: {r: 1, g: 1, b: 1, a: 1}
-    gateAlignment: 1
-  - position: {x: 1, y: 11}
-    cellType: 1
-    exitDirection: 0
-    gateColorType: 9
-    customGateColor: {r: 1, g: 1, b: 1, a: 1}
-    gateAlignment: 1
-  - position: {x: 2, y: 11}
-    cellType: 1
-    exitDirection: 0
-    gateColorType: 9
-    customGateColor: {r: 1, g: 1, b: 1, a: 1}
-    gateAlignment: 1
-  - position: {x: 3, y: 11}
-    cellType: 1
-    exitDirection: 0
-    gateColorType: 9
-    customGateColor: {r: 1, g: 1, b: 1, a: 1}
-    gateAlignment: 1
-  - position: {x: 4, y: 11}
-    cellType: 1
-    exitDirection: 0
-    gateColorType: 9
-    customGateColor: {r: 1, g: 1, b: 1, a: 1}
-    gateAlignment: 1
-  - position: {x: 5, y: 11}
-    cellType: 1
-    exitDirection: 0
-    gateColorType: 9
-    customGateColor: {r: 1, g: 1, b: 1, a: 1}
-    gateAlignment: 1
-  - position: {x: 6, y: 11}
-    cellType: 1
-    exitDirection: 0
-    gateColorType: 9
-    customGateColor: {r: 1, g: 1, b: 1, a: 1}
-    gateAlignment: 1
-  - position: {x: 7, y: 11}
-    cellType: 1
-    exitDirection: 0
+    cellType: 5
+    exitDirection: 1
     gateColorType: 9
     customGateColor: {r: 1, g: 1, b: 1, a: 1}
     gateAlignment: 1
   pieces:
   - pieceId: Piece_1
-    shape: {fileID: 11400000, guid: 21e146af8f355f84294a1505e357abe1, type: 2}
-    originPosition: {x: 1, y: 7}
-    rotationSteps: 0
-    flipHorizontal: 0
-    colorType: 0
-    customColor: {r: 1, g: 0, b: 0, a: 1}
-    moveRestriction: 0
-    isRequiredForWin: 1
-    freezeCount: 0
-  - pieceId: Piece_2
-    shape: {fileID: 11400000, guid: 02833d708d44ca5408fa898a3f6116d3, type: 2}
+    shape: {fileID: 11400000, guid: 50f163b080ad1ee40b703a613a544f86, type: 2}
     originPosition: {x: 2, y: 3}
     rotationSteps: 0
     flipHorizontal: 0
@@ -616,23 +414,71 @@ MonoBehaviour:
     moveRestriction: 0
     isRequiredForWin: 1
     freezeCount: 0
+    isDoubleBlock: 1
+    innerColorType: 3
+    innerCustomColor: {r: 0, g: 0, b: 1, a: 1}
+  - pieceId: Piece_2
+    shape: {fileID: 11400000, guid: 50f163b080ad1ee40b703a613a544f86, type: 2}
+    originPosition: {x: 1, y: 1}
+    rotationSteps: 2
+    flipHorizontal: 0
+    colorType: 1
+    customColor: {r: 1, g: 0, b: 0, a: 1}
+    moveRestriction: 0
+    isRequiredForWin: 1
+    freezeCount: 0
+    isDoubleBlock: 1
+    innerColorType: 2
+    innerCustomColor: {r: 0, g: 0, b: 1, a: 1}
   - pieceId: Piece_3
     shape: {fileID: 11400000, guid: 02833d708d44ca5408fa898a3f6116d3, type: 2}
-    originPosition: {x: 5, y: 4}
-    rotationSteps: 0
-    flipHorizontal: 1
-    colorType: 0
+    originPosition: {x: 2, y: 1}
+    rotationSteps: 3
+    flipHorizontal: 0
+    colorType: 2
     customColor: {r: 1, g: 0, b: 0, a: 1}
     moveRestriction: 0
     isRequiredForWin: 1
     freezeCount: 0
+    isDoubleBlock: 0
+    innerColorType: 2
+    innerCustomColor: {r: 0, g: 0, b: 1, a: 1}
   - pieceId: Piece_4
-    shape: {fileID: 11400000, guid: 02833d708d44ca5408fa898a3f6116d3, type: 2}
-    originPosition: {x: 1, y: 1}
-    rotationSteps: 1
-    flipHorizontal: 1
-    colorType: 0
+    shape: {fileID: 11400000, guid: 209b5544d92aeca469fd6a76d79ccb61, type: 2}
+    originPosition: {x: 5, y: 2}
+    rotationSteps: 0
+    flipHorizontal: 0
+    colorType: 3
     customColor: {r: 1, g: 0, b: 0, a: 1}
-    moveRestriction: 0
+    moveRestriction: 2
     isRequiredForWin: 1
     freezeCount: 0
+    isDoubleBlock: 0
+    innerColorType: 2
+    innerCustomColor: {r: 0, g: 0, b: 1, a: 1}
+  - pieceId: Piece_5
+    shape: {fileID: 11400000, guid: 50f163b080ad1ee40b703a613a544f86, type: 2}
+    originPosition: {x: 5, y: 6}
+    rotationSteps: 3
+    flipHorizontal: 0
+    colorType: 4
+    customColor: {r: 1, g: 0, b: 0, a: 1}
+    moveRestriction: 1
+    isRequiredForWin: 1
+    freezeCount: 0
+    isDoubleBlock: 0
+    innerColorType: 2
+    innerCustomColor: {r: 0, g: 0, b: 1, a: 1}
+  - pieceId: Piece_6
+    shape: {fileID: 11400000, guid: b36e75a92de921944b081e999ab893ee, type: 2}
+    originPosition: {x: 6, y: 3}
+    rotationSteps: 2
+    flipHorizontal: 0
+    colorType: 7
+    customColor: {r: 1, g: 0, b: 0, a: 1}
+    moveRestriction: 2
+    isRequiredForWin: 1
+    freezeCount: 4
+    isDoubleBlock: 0
+    innerColorType: 2
+    innerCustomColor: {r: 0, g: 0, b: 1, a: 1}

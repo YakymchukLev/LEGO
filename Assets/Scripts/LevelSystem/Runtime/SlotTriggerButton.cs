@@ -34,40 +34,19 @@ namespace LegoPuzzle.Runtime
 
         public void OnClick()
         {
+            if (!SlotsButton.IsSlotsUnlocked())
+            {
+                SlotsButton.ShowLockedFloatingHint();
+                return;
+            }
+
             if (targetSlotPanel != null)
             {
                 targetSlotPanel.Open();
                 return;
             }
 
-            if (SlotMachinePanel.Instance != null)
-            {
-                SlotMachinePanel.Instance.Open();
-                return;
-            }
-
-            var existing = FindAnyObjectByType<SlotMachinePanel>(FindObjectsInactive.Include);
-            if (existing != null)
-            {
-                targetSlotPanel = existing;
-                existing.Open();
-                return;
-            }
-
-            // Auto-create on the nearest active Canvas
-            Canvas canvas = GetComponentInParent<Canvas>();
-            if (canvas == null) canvas = FindAnyObjectByType<Canvas>();
-            if (canvas != null)
-            {
-                GameObject panelObj = new GameObject("SlotMachinePanel");
-                panelObj.transform.SetParent(canvas.transform, false);
-                targetSlotPanel = panelObj.AddComponent<SlotMachinePanel>();
-                targetSlotPanel.Open();
-            }
-            else
-            {
-                Debug.LogWarning("[SlotTriggerButton] Could not find Canvas in scene to create SlotMachinePanel.");
-            }
+            SlotMachinePanel.OpenSlotMachine();
         }
     }
 }
