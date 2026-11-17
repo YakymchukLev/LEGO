@@ -10,7 +10,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: b88ac82cc0efa2b4bb3e367166d626e1, type: 3}
-  m_Name: 
+  m_Name: Level_012
   m_EditorClassIdentifier: 
   levelIndex: 12
   levelTitle: Level 12
@@ -510,71 +510,111 @@ MonoBehaviour:
     shape: {fileID: 11400000, guid: b36e75a92de921944b081e999ab893ee, type: 2}
     originPosition: {x: 7, y: 3}
     rotationSteps: 0
+    flipHorizontal: 0
     colorType: 0
     customColor: {r: 1, g: 0, b: 0, a: 1}
     moveRestriction: 0
     isRequiredForWin: 1
     freezeCount: 0
+    isDoubleBlock: 0
+    innerColorType: 2
+    innerCustomColor: {r: 0, g: 0, b: 1, a: 1}
+    isMovableBarrier: 0
   - pieceId: Piece_2
     shape: {fileID: 11400000, guid: b36e75a92de921944b081e999ab893ee, type: 2}
     originPosition: {x: 1, y: 7}
     rotationSteps: 3
+    flipHorizontal: 0
     colorType: 1
     customColor: {r: 1, g: 0, b: 0, a: 1}
     moveRestriction: 0
     isRequiredForWin: 1
     freezeCount: 0
+    isDoubleBlock: 0
+    innerColorType: 2
+    innerCustomColor: {r: 0, g: 0, b: 1, a: 1}
+    isMovableBarrier: 0
   - pieceId: Piece_3
     shape: {fileID: 11400000, guid: 02833d708d44ca5408fa898a3f6116d3, type: 2}
     originPosition: {x: 5, y: 1}
     rotationSteps: 1
+    flipHorizontal: 0
     colorType: 2
     customColor: {r: 1, g: 0, b: 0, a: 1}
     moveRestriction: 0
     isRequiredForWin: 1
     freezeCount: 0
+    isDoubleBlock: 0
+    innerColorType: 2
+    innerCustomColor: {r: 0, g: 0, b: 1, a: 1}
+    isMovableBarrier: 0
   - pieceId: Piece_4
     shape: {fileID: 11400000, guid: 50f163b080ad1ee40b703a613a544f86, type: 2}
     originPosition: {x: 7, y: 6}
     rotationSteps: 0
+    flipHorizontal: 0
     colorType: 3
     customColor: {r: 1, g: 0, b: 0, a: 1}
     moveRestriction: 1
     isRequiredForWin: 1
     freezeCount: 0
+    isDoubleBlock: 0
+    innerColorType: 2
+    innerCustomColor: {r: 0, g: 0, b: 1, a: 1}
+    isMovableBarrier: 0
   - pieceId: Piece_5
     shape: {fileID: 11400000, guid: 50f163b080ad1ee40b703a613a544f86, type: 2}
     originPosition: {x: 1, y: 3}
     rotationSteps: 1
+    flipHorizontal: 0
     colorType: 4
     customColor: {r: 1, g: 0, b: 0, a: 1}
     moveRestriction: 0
     isRequiredForWin: 1
     freezeCount: 0
+    isDoubleBlock: 0
+    innerColorType: 2
+    innerCustomColor: {r: 0, g: 0, b: 1, a: 1}
+    isMovableBarrier: 0
   - pieceId: Piece_6
     shape: {fileID: 11400000, guid: c923fc20688572c438d16ff1bbc3a9e6, type: 2}
     originPosition: {x: 4, y: 6}
     rotationSteps: 1
+    flipHorizontal: 0
     colorType: 5
     customColor: {r: 1, g: 0, b: 0, a: 1}
     moveRestriction: 0
     isRequiredForWin: 1
     freezeCount: 0
+    isDoubleBlock: 0
+    innerColorType: 2
+    innerCustomColor: {r: 0, g: 0, b: 1, a: 1}
+    isMovableBarrier: 0
   - pieceId: Piece_7
     shape: {fileID: 11400000, guid: b36e75a92de921944b081e999ab893ee, type: 2}
     originPosition: {x: 4, y: 5}
     rotationSteps: 1
+    flipHorizontal: 0
     colorType: 7
     customColor: {r: 1, g: 0, b: 0, a: 1}
     moveRestriction: 1
     isRequiredForWin: 1
     freezeCount: 0
+    isDoubleBlock: 0
+    innerColorType: 2
+    innerCustomColor: {r: 0, g: 0, b: 1, a: 1}
+    isMovableBarrier: 0
   - pieceId: Piece_8
     shape: {fileID: 11400000, guid: 9fc706dc773b47e4288a23054b569d3c, type: 2}
     originPosition: {x: 2, y: 2}
     rotationSteps: 3
+    flipHorizontal: 0
     colorType: 0
     customColor: {r: 1, g: 0, b: 0, a: 1}
     moveRestriction: 0
     isRequiredForWin: 1
     freezeCount: 0
+    isDoubleBlock: 0
+    innerColorType: 2
+    innerCustomColor: {r: 0, g: 0, b: 1, a: 1}
+    isMovableBarrier: 0

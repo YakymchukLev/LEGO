@@ -10,7 +10,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: b88ac82cc0efa2b4bb3e367166d626e1, type: 3}
-  m_Name: 
+  m_Name: Level_010
   m_EditorClassIdentifier: 
   levelIndex: 10
   levelTitle: Level 10
@@ -276,35 +276,55 @@ MonoBehaviour:
     shape: {fileID: 11400000, guid: c923fc20688572c438d16ff1bbc3a9e6, type: 2}
     originPosition: {x: 3, y: 1}
     rotationSteps: 3
+    flipHorizontal: 0
     colorType: 0
     customColor: {r: 1, g: 0, b: 0, a: 1}
     moveRestriction: 0
     isRequiredForWin: 1
     freezeCount: 0
+    isDoubleBlock: 0
+    innerColorType: 2
+    innerCustomColor: {r: 0, g: 0, b: 1, a: 1}
+    isMovableBarrier: 0
   - pieceId: Piece_2
     shape: {fileID: 11400000, guid: 50f163b080ad1ee40b703a613a544f86, type: 2}
     originPosition: {x: 1, y: 4}
     rotationSteps: 1
+    flipHorizontal: 0
     colorType: 1
     customColor: {r: 1, g: 0, b: 0, a: 1}
     moveRestriction: 2
     isRequiredForWin: 1
     freezeCount: 0
+    isDoubleBlock: 0
+    innerColorType: 2
+    innerCustomColor: {r: 0, g: 0, b: 1, a: 1}
+    isMovableBarrier: 0
   - pieceId: Piece_3
     shape: {fileID: 11400000, guid: 50f163b080ad1ee40b703a613a544f86, type: 2}
     originPosition: {x: 1, y: 1}
     rotationSteps: 0
+    flipHorizontal: 0
     colorType: 2
     customColor: {r: 1, g: 0, b: 0, a: 1}
     moveRestriction: 0
     isRequiredForWin: 1
     freezeCount: 0
+    isDoubleBlock: 0
+    innerColorType: 2
+    innerCustomColor: {r: 0, g: 0, b: 1, a: 1}
+    isMovableBarrier: 0
   - pieceId: Piece_4
     shape: {fileID: 11400000, guid: 50f163b080ad1ee40b703a613a544f86, type: 2}
     originPosition: {x: 1, y: 5}
     rotationSteps: 3
+    flipHorizontal: 0
     colorType: 0
     customColor: {r: 1, g: 0, b: 0, a: 1}
     moveRestriction: 1
     isRequiredForWin: 1
     freezeCount: 0
+    isDoubleBlock: 0
+    innerColorType: 2
+    innerCustomColor: {r: 0, g: 0, b: 1, a: 1}
+    isMovableBarrier: 0

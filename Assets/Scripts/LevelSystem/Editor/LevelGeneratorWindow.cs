@@ -408,7 +408,7 @@ namespace LegoPuzzle.Editor
                 EditorGUILayout.EndHorizontal();
                 if (currentSettings.allowMovableBarriers)
                 {
-                    EditorGUILayout.HelpBox("1×1 бар'єри кольору стін: рухаються, блокують шлях, не виводяться. Можуть отримати ❄ / ↔↕, якщо ці механіки увімкнені вище.", MessageType.Info);
+                    EditorGUILayout.HelpBox("1×1 бар'єри кольору стін: рухаються, блокують шлях, не виводяться. Генератор ставить Free-бар'єри; ❄ / ↔↕ можна задати в Level Editor.", MessageType.Info);
                 }
 
                 EditorGUILayout.Space(4);
@@ -446,6 +446,16 @@ namespace LegoPuzzle.Editor
                 currentSettings.targetMinMoves = EditorGUILayout.IntSlider("Цільова мін. к-сть ходів", currentSettings.targetMinMoves, 2, 50);
                 currentSettings.randomSeed = EditorGUILayout.IntField("Seed (0=rnd)", currentSettings.randomSeed);
                 EditorGUILayout.EndHorizontal();
+
+                if (currentSettings.useShape1x1
+                    || (currentSettings.allowFreeMove && (currentSettings.allowHorizontalOnly || currentSettings.allowVerticalOnly))
+                    || currentSettings.useShapeCross3x3)
+                {
+                    EditorGUILayout.HelpBox(
+                        "Увага: багато дозволів (особливо 1×1 + Free) робить базові розкладки легшими. " +
+                        "Генератор автоматично піднімає цільові ходи/scramble. Для жорсткіших рівнів вимкни 1×1 або зменши сітку / додай деталей.",
+                        MessageType.Info);
+                }
 
                 EditorGUILayout.EndVertical();
             }
@@ -531,7 +541,18 @@ namespace LegoPuzzle.Editor
                 {
                     currentResult.levelData.levelIndex = currentSettings.levelIndex;
                     currentResult.levelData.levelTitle = currentSettings.levelTitle;
-                    Debug.Log($"<color=green>LegoLevelGenerator: Рівень {currentSettings.levelIndex} успішно згенеровано! Складність: {currentSettings.difficultyTier}, Архетип: {currentSettings.archetype}, Оптимально ходів: {currentResult.solverResult.optimalMoves}</color>");
+                    int barriers = 0;
+                    if (currentResult.levelData.pieces != null)
+                    {
+                        foreach (var p in currentResult.levelData.pieces)
+                        {
+                            if (p != null && p.isMovableBarrier) barriers++;
+                        }
+                    }
+                    string barrierMsg = currentSettings.allowMovableBarriers
+                        ? (barriers > 0 ? $", 🧱 бар'єрів: {barriers}" : ", 🧱 бар'єри: не вдалося розмістити")
+                        : "";
+                    Debug.Log($"<color=green>LegoLevelGenerator: Рівень {currentSettings.levelIndex} успішно згенеровано! Складність: {currentSettings.difficultyTier}, Архетип: {currentSettings.archetype}, Оптимально ходів: {currentResult.solverResult.optimalMoves}{barrierMsg}</color>");
                 }
                 else
                 {
@@ -568,20 +589,42 @@ namespace LegoPuzzle.Editor
 
             EditorGUILayout.LabelField($"🎯 Хід розв'язку: {currentResult.solverResult.optimalMoves} кроків", EditorStyles.boldLabel);
             EditorGUILayout.LabelField($"🏛 Архетип: {currentSettings.archetype}");
-            EditorGUILayout.LabelField($"🧩 Деталей: {currentResult.levelData.pieces.Count}");
-
+            int pieceCount = currentResult.levelData.pieces != null ? currentResult.levelData.pieces.Count : 0;
             int frozenCount = 0;
+            int barrierCount = 0;
+            int doubleCount = 0;
             if (currentResult.levelData.pieces != null)
             {
                 foreach (var p in currentResult.levelData.pieces)
                 {
-                    if (p != null && p.IsFrozen) frozenCount++;
+                    if (p == null) continue;
+                    if (p.IsFrozen) frozenCount++;
+                    if (p.isMovableBarrier) barrierCount++;
+                    if (p.isDoubleBlock) doubleCount++;
                 }
             }
+
+            EditorGUILayout.LabelField($"🧩 Деталей: {pieceCount}");
             if (frozenCount > 0)
             {
                 GUI.color = new Color(0.4f, 0.85f, 1f);
-                EditorGUILayout.LabelField($"❄ Заморожених: {frozenCount}", EditorStyles.boldLabel);
+                EditorGUILayout.LabelField($"❄ {frozenCount}", EditorStyles.boldLabel, GUILayout.Width(50));
+                GUI.color = Color.white;
+            }
+            if (doubleCount > 0)
+            {
+                EditorGUILayout.LabelField($"▣ {doubleCount}", EditorStyles.boldLabel, GUILayout.Width(50));
+            }
+            if (barrierCount > 0)
+            {
+                GUI.color = new Color(0.85f, 0.75f, 0.55f);
+                EditorGUILayout.LabelField($"🧱 {barrierCount}", EditorStyles.boldLabel, GUILayout.Width(50));
+                GUI.color = Color.white;
+            }
+            else if (currentSettings.allowMovableBarriers)
+            {
+                GUI.color = new Color(1f, 0.55f, 0.35f);
+                EditorGUILayout.LabelField("🧱 0 (не вдалось)", EditorStyles.boldLabel, GUILayout.Width(120));
                 GUI.color = Color.white;
             }
             EditorGUILayout.EndHorizontal();

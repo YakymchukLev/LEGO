@@ -39,6 +39,14 @@ namespace LegoPuzzle.Editor
         private LegoPieceData selectedPiece = null;
         private bool showPiecesListFoldout = false;
 
+        // Перетягування блоку в режимі SelectPiece
+        private bool isDraggingSelectedPiece;
+        private Vector2Int dragGrabOffset;
+        private Vector2Int? dragHoverCell;
+        private Vector2Int dragProposedOrigin;
+        private bool dragPlacementValid;
+        private bool dragHasHover;
+
         private const string LevelsFolder = "Assets/Resources/Levels";
 
         private Vector2 scrollPos;
@@ -143,6 +151,7 @@ namespace LegoPuzzle.Editor
             }
 
             selectedPiece = null;
+            CancelPieceDrag();
         }
 
         private static bool IsValidLevelAsset(LevelData level)
@@ -251,11 +260,37 @@ namespace LegoPuzzle.Editor
         private void DrawLevelHeader()
         {
             EditorGUILayout.BeginHorizontal();
+
+            List<LevelData> levels = GetSortedLevelAssets();
+            int currentIdx = targetLevel != null ? levels.FindIndex(l => l == targetLevel) : -1;
+            bool canPrev = currentIdx > 0 || (currentIdx < 0 && levels.Count > 0);
+            bool canNext = (currentIdx >= 0 && currentIdx < levels.Count - 1)
+                           || (currentIdx < 0 && levels.Count > 0);
+
+            EditorGUI.BeginDisabledGroup(!canPrev);
+            if (GUILayout.Button(new GUIContent("◀", "Попередній рівень"), GUILayout.Width(28), GUILayout.Height(20)))
+                NavigateAdjacentLevel(-1, levels);
+            EditorGUI.EndDisabledGroup();
+
             LevelData picked = (LevelData)EditorGUILayout.ObjectField("Рівень (Asset)", targetLevel, typeof(LevelData), false);
             if (picked != targetLevel)
             {
                 targetLevel = IsValidLevelAsset(picked) ? picked : null;
                 selectedPiece = null;
+                CancelPieceDrag();
+            }
+
+            EditorGUI.BeginDisabledGroup(!canNext);
+            if (GUILayout.Button(new GUIContent("▶", "Наступний рівень"), GUILayout.Width(28), GUILayout.Height(20)))
+                NavigateAdjacentLevel(+1, levels);
+            EditorGUI.EndDisabledGroup();
+
+            if (levels.Count > 0)
+            {
+                string posLabel = currentIdx >= 0
+                    ? $"{currentIdx + 1} / {levels.Count}"
+                    : $"— / {levels.Count}";
+                EditorGUILayout.LabelField(posLabel, GUILayout.Width(64));
             }
 
             if (GUILayout.Button("Новий рівень", GUILayout.Width(100)))
@@ -461,6 +496,9 @@ namespace LegoPuzzle.Editor
                     if (pieceRestriction == MoveRestriction.Locked)
                         pieceRestriction = MoveRestriction.Free;
 
+                    pieceRotation = EditorGUILayout.IntSlider($"Поворот ({pieceRotation * 90}°)", pieceRotation, 0, 3);
+                    pieceFlipHorizontal = EditorGUILayout.Toggle("Дзеркало по X (Flip X)", pieceFlipHorizontal);
+
                     EditorGUILayout.Space(4);
                     EditorGUILayout.BeginHorizontal();
                     pieceFreezeCount = EditorGUILayout.IntField("❄ Лічильник заморозки", Mathf.Max(0, pieceFreezeCount));
@@ -471,7 +509,7 @@ namespace LegoPuzzle.Editor
                     if (pieceFreezeCount > 0)
                         EditorGUILayout.HelpBox($"Бар'єр буде замороженим! Стане рухомим після знищення {pieceFreezeCount} інш. блоків.", MessageType.Info);
 
-                    EditorGUILayout.HelpBox("Бар'єр блокує шлях, не виходить у ворота і не потрібен для перемоги. Може бути ❄ і слайдером ↔/↕.", MessageType.Info);
+                    EditorGUILayout.HelpBox("Бар'єр блокує шлях, не виходить у ворота і не потрібен для перемоги. Може бути ❄, слайдером ↔/↕ і обертатися як звичайний блок.", MessageType.Info);
                 }
                 else
                 {
@@ -507,10 +545,17 @@ namespace LegoPuzzle.Editor
             {
                 if (selectedPiece == null)
                 {
-                    EditorGUILayout.HelpBox("Клікніть на будь-який блок на сітці нижче, щоб обрати та налаштувати його параметри.", MessageType.Info);
+                    EditorGUILayout.HelpBox(
+                        "Клікніть на блок, щоб обрати його. Перетягніть блок на іншу клітинку, щоб змінити позицію.",
+                        MessageType.Info);
                 }
                 else
                 {
+                    EditorGUILayout.HelpBox(
+                        isDraggingSelectedPiece
+                            ? "Відпустіть кнопку миші на цільовій клітинці, щоб перемістити блок. Esc — скасувати."
+                            : "Перетягніть обраний блок на сітці, щоб змінити його origin-позицію.",
+                        MessageType.None);
                     EditorGUILayout.LabelField($"Налаштування обраного блоку: {selectedPiece.pieceId}", EditorStyles.boldLabel);
                     EditorGUI.BeginChangeCheck();
 
@@ -529,6 +574,9 @@ namespace LegoPuzzle.Editor
                         if (selectedPiece.moveRestriction == MoveRestriction.Locked)
                             selectedPiece.moveRestriction = MoveRestriction.Free;
 
+                        selectedPiece.rotationSteps = EditorGUILayout.IntSlider($"Поворот ({selectedPiece.rotationSteps * 90}°)", selectedPiece.rotationSteps, 0, 3);
+                        selectedPiece.flipHorizontal = EditorGUILayout.Toggle("Дзеркало по X (Flip X)", selectedPiece.flipHorizontal);
+
                         EditorGUILayout.Space(4);
                         EditorGUILayout.BeginHorizontal();
                         selectedPiece.freezeCount = EditorGUILayout.IntField("❄ Лічильник заморозки", Mathf.Max(0, selectedPiece.freezeCount));
@@ -539,7 +587,7 @@ namespace LegoPuzzle.Editor
                         if (selectedPiece.freezeCount > 0)
                             EditorGUILayout.HelpBox($"Бар'єр заморожений! Стане рухомим після знищення {selectedPiece.freezeCount} інших блоків.", MessageType.Warning);
 
-                        EditorGUILayout.HelpBox("Колір як у стін. Не виводиться у ворота, не потрібен для перемоги. Підтримує ❄ і слайдер ↔/↕.", MessageType.Info);
+                        EditorGUILayout.HelpBox("Колір як у стін. Не виводиться у ворота, не потрібен для перемоги. Підтримує ❄, слайдер ↔/↕, поворот і дзеркало.", MessageType.Info);
                     }
                     else
                     {
@@ -585,6 +633,7 @@ namespace LegoPuzzle.Editor
                     {
                         targetLevel.pieces.Remove(selectedPiece);
                         selectedPiece = null;
+                        CancelPieceDrag();
                         EditorUtility.SetDirty(targetLevel);
                         AssetDatabase.SaveAssets();
                     }
@@ -655,8 +704,16 @@ namespace LegoPuzzle.Editor
         {
             targetLevel.EnsureGridCapacity();
 
+            if (currentMode != PaintMode.SelectPiece && isDraggingSelectedPiece)
+                CancelPieceDrag();
+
+            HandleSelectPieceDragHotkeys();
+
             EditorGUILayout.BeginHorizontal();
-            EditorGUILayout.LabelField("Інтерактивне поле (клікніть для редагування):", EditorStyles.boldLabel);
+            string gridHint = currentMode == PaintMode.SelectPiece
+                ? "Інтерактивне поле (перетягніть блок, щоб змінити позицію):"
+                : "Інтерактивне поле (клікніть для редагування):";
+            EditorGUILayout.LabelField(gridHint, EditorStyles.boldLabel);
             GUILayout.FlexibleSpace();
             EditorGUILayout.LabelField("Масштаб (Zoom):", GUILayout.Width(110));
             previewCellSize = EditorGUILayout.Slider(previewCellSize, LevelGridRenderer.MIN_CELL_SIZE, LevelGridRenderer.MAX_CELL_SIZE, GUILayout.Width(140));
@@ -666,6 +723,12 @@ namespace LegoPuzzle.Editor
             int gridH = Mathf.Clamp(targetLevel.gridHeight, 1, 24);
             float viewHeight = Mathf.Min(430f, (gridH + 1) * (previewCellSize + 3f) + 24f);
             scrollPos = EditorGUILayout.BeginScrollView(scrollPos, GUILayout.Height(viewHeight));
+
+            Event e = Event.current;
+            int dragControlId = GUIUtility.GetControlID(FocusType.Passive);
+            var cellRects = currentMode == PaintMode.SelectPiece
+                ? new List<(Rect rect, int x, int y, LegoPieceData piece)>(targetLevel.gridWidth * targetLevel.gridHeight)
+                : null;
 
             // Малюємо сітку знизу вгору (як у системі координат Y)
             for (int y = targetLevel.gridHeight - 1; y >= 0; y--)
@@ -690,14 +753,21 @@ namespace LegoPuzzle.Editor
                         EditorGUI.DrawRect(new Rect(cellRect.xMax - 2.5f, cellRect.y, 2.5f, cellRect.height), selBorder);
                     }
 
-                    if (GUI.Button(cellRect, GUIContent.none, GUIStyle.none))
-                    {
+                    if (cellRects != null)
+                        cellRects.Add((cellRect, x, y, pieceOnCell));
+                    else if (GUI.Button(cellRect, GUIContent.none, GUIStyle.none))
                         OnCellClicked(x, y);
-                    }
                 }
 
                 GUILayout.FlexibleSpace();
                 EditorGUILayout.EndHorizontal();
+            }
+
+            if (currentMode == PaintMode.SelectPiece && cellRects != null)
+            {
+                UpdateSelectPieceDragHover(e, cellRects);
+                DrawSelectPieceDragPreview(cellRects);
+                HandleSelectPieceDragInput(e, dragControlId, cellRects);
             }
 
             EditorGUILayout.EndScrollView();
@@ -705,6 +775,195 @@ namespace LegoPuzzle.Editor
             LevelGridRenderer.DrawLegend();
 
             DrawPiecesList();
+        }
+
+        private void HandleSelectPieceDragHotkeys()
+        {
+            Event e = Event.current;
+            if (e == null || e.type != EventType.KeyDown) return;
+            if (e.keyCode == KeyCode.Escape && isDraggingSelectedPiece)
+            {
+                CancelPieceDrag();
+                e.Use();
+                Repaint();
+            }
+        }
+
+        private void UpdateSelectPieceDragHover(Event e, List<(Rect rect, int x, int y, LegoPieceData piece)> cellRects)
+        {
+            dragHasHover = false;
+            if (e == null) return;
+
+            for (int i = 0; i < cellRects.Count; i++)
+            {
+                if (!cellRects[i].rect.Contains(e.mousePosition))
+                    continue;
+
+                dragHoverCell = new Vector2Int(cellRects[i].x, cellRects[i].y);
+                dragHasHover = true;
+                break;
+            }
+
+            if (isDraggingSelectedPiece && selectedPiece != null && dragHasHover && dragHoverCell.HasValue)
+            {
+                dragProposedOrigin = dragHoverCell.Value - dragGrabOffset;
+                dragPlacementValid = CanPlacePieceAt(selectedPiece, dragProposedOrigin);
+            }
+            else
+            {
+                dragPlacementValid = false;
+            }
+        }
+
+        private void DrawSelectPieceDragPreview(List<(Rect rect, int x, int y, LegoPieceData piece)> cellRects)
+        {
+            if (!isDraggingSelectedPiece || selectedPiece == null || !dragHasHover)
+                return;
+
+            HashSet<Vector2Int> previewCells = new HashSet<Vector2Int>(GetOccupiedAt(selectedPiece, dragProposedOrigin));
+            Color preview = dragPlacementValid
+                ? new Color(0.2f, 1f, 0.35f, 0.35f)
+                : new Color(1f, 0.2f, 0.2f, 0.4f);
+
+            for (int i = 0; i < cellRects.Count; i++)
+            {
+                if (previewCells.Contains(new Vector2Int(cellRects[i].x, cellRects[i].y)))
+                    EditorGUI.DrawRect(cellRects[i].rect, preview);
+            }
+        }
+
+        private void HandleSelectPieceDragInput(
+            Event e,
+            int dragControlId,
+            List<(Rect rect, int x, int y, LegoPieceData piece)> cellRects)
+        {
+            if (e == null) return;
+
+            if (e.type == EventType.MouseDown && e.button == 0 && dragHasHover && dragHoverCell.HasValue)
+            {
+                LegoPieceData pieceOnCell = null;
+                for (int i = 0; i < cellRects.Count; i++)
+                {
+                    if (cellRects[i].x == dragHoverCell.Value.x && cellRects[i].y == dragHoverCell.Value.y)
+                    {
+                        pieceOnCell = cellRects[i].piece;
+                        break;
+                    }
+                }
+
+                if (pieceOnCell != null)
+                {
+                    selectedPiece = pieceOnCell;
+                    isDraggingSelectedPiece = true;
+                    dragGrabOffset = dragHoverCell.Value - selectedPiece.originPosition;
+                    dragProposedOrigin = selectedPiece.originPosition;
+                    dragPlacementValid = true;
+                    GUIUtility.hotControl = dragControlId;
+                    e.Use();
+                    Repaint();
+                }
+                else
+                {
+                    selectedPiece = null;
+                    CancelPieceDrag();
+                    e.Use();
+                    Repaint();
+                }
+
+                return;
+            }
+
+            if (isDraggingSelectedPiece && (e.type == EventType.MouseDrag || e.type == EventType.MouseMove))
+            {
+                Repaint();
+                return;
+            }
+
+            if (e.type != EventType.MouseUp || e.button != 0) return;
+            if (GUIUtility.hotControl != dragControlId && !isDraggingSelectedPiece) return;
+
+            if (isDraggingSelectedPiece && selectedPiece != null && dragHasHover && dragHoverCell.HasValue)
+            {
+                Vector2Int newOrigin = dragHoverCell.Value - dragGrabOffset;
+                if (newOrigin != selectedPiece.originPosition && CanPlacePieceAt(selectedPiece, newOrigin))
+                {
+                    Undo.RecordObject(targetLevel, "Move Piece");
+                    selectedPiece.originPosition = newOrigin;
+                    EditorUtility.SetDirty(targetLevel);
+                    AssetDatabase.SaveAssets();
+                }
+            }
+
+            if (GUIUtility.hotControl == dragControlId)
+                GUIUtility.hotControl = 0;
+
+            CancelPieceDrag();
+            e.Use();
+            Repaint();
+        }
+
+        private void CancelPieceDrag()
+        {
+            isDraggingSelectedPiece = false;
+            dragHoverCell = null;
+            dragHasHover = false;
+            dragPlacementValid = false;
+        }
+
+        private static List<Vector2Int> GetOccupiedAt(LegoPieceData piece, Vector2Int origin)
+        {
+            var occupied = new List<Vector2Int>();
+            if (piece == null)
+                return occupied;
+
+            var offsets = piece.GetOrientedOffsets();
+            for (int i = 0; i < offsets.Count; i++)
+                occupied.Add(origin + offsets[i]);
+
+            return occupied;
+        }
+
+        private bool CanPlacePieceAt(LegoPieceData piece, Vector2Int newOrigin)
+        {
+            if (piece == null || targetLevel == null) return false;
+
+            List<Vector2Int> occupied = GetOccupiedAt(piece, newOrigin);
+            for (int i = 0; i < occupied.Count; i++)
+            {
+                Vector2Int cell = occupied[i];
+                if (cell.x < 0 || cell.y < 0
+                    || cell.x >= targetLevel.gridWidth
+                    || cell.y >= targetLevel.gridHeight)
+                {
+                    return false;
+                }
+
+                // Блоки можна ставити лише на Walkable — не на стіни / Obstacle / Empty / ворота.
+                if (!IsCellAllowedForPiece(targetLevel.GetCell(cell.x, cell.y).cellType))
+                    return false;
+            }
+
+            if (targetLevel.pieces == null) return true;
+
+            for (int i = 0; i < targetLevel.pieces.Count; i++)
+            {
+                LegoPieceData other = targetLevel.pieces[i];
+                if (other == null || other == piece) continue;
+
+                List<Vector2Int> otherCells = other.GetOccupiedGridCells();
+                for (int c = 0; c < occupied.Count; c++)
+                {
+                    if (otherCells.Contains(occupied[c]))
+                        return false;
+                }
+            }
+
+            return true;
+        }
+
+        private static bool IsCellAllowedForPiece(CellType cellType)
+        {
+            return cellType == CellType.Walkable;
         }
 
         private void DrawPiecesList()
@@ -791,7 +1050,11 @@ namespace LegoPuzzle.Editor
                     GUI.backgroundColor = new Color(1f, 0.5f, 0.5f);
                     if (GUILayout.Button("✕", GUILayout.Width(25)))
                     {
-                        if (selectedPiece == p) selectedPiece = null;
+                        if (selectedPiece == p)
+                        {
+                            selectedPiece = null;
+                            CancelPieceDrag();
+                        }
                         targetLevel.pieces.RemoveAt(i);
                         EditorUtility.SetDirty(targetLevel);
                         GUI.backgroundColor = Color.white;
@@ -841,8 +1104,8 @@ namespace LegoPuzzle.Editor
                             : $"Piece_{targetLevel.pieces.Count + 1}",
                         shape = selectedShape,
                         originPosition = new Vector2Int(x, y),
-                        rotationSteps = pieceIsMovableBarrier ? 0 : pieceRotation,
-                        flipHorizontal = pieceIsMovableBarrier ? false : pieceFlipHorizontal,
+                        rotationSteps = pieceRotation,
+                        flipHorizontal = pieceFlipHorizontal,
                         colorType = pieceColorType,
                         moveRestriction = pieceIsMovableBarrier && pieceRestriction == MoveRestriction.Locked
                             ? MoveRestriction.Free
@@ -853,6 +1116,12 @@ namespace LegoPuzzle.Editor
                         isMovableBarrier = pieceIsMovableBarrier,
                         isRequiredForWin = !pieceIsMovableBarrier
                     };
+
+                    if (!CanPlacePieceAt(newPiece, newPiece.originPosition))
+                    {
+                        Debug.LogWarning("LevelEditor: Не можна поставити блок на стіну, Obstacle або не-Walkable клітинку.");
+                        return;
+                    }
 
                     targetLevel.pieces.Add(newPiece);
                     selectedPiece = newPiece;
@@ -1021,6 +1290,56 @@ namespace LegoPuzzle.Editor
             }
 
             return max + 1;
+        }
+
+        private static List<LevelData> GetSortedLevelAssets()
+        {
+            string[] guids = AssetDatabase.FindAssets("t:LevelData", new[] { LevelsFolder });
+            if (guids == null || guids.Length == 0)
+                guids = AssetDatabase.FindAssets("t:LevelData");
+
+            var list = new List<LevelData>();
+            var seen = new HashSet<int>();
+
+            for (int i = 0; i < guids.Length; i++)
+            {
+                string path = AssetDatabase.GUIDToAssetPath(guids[i]);
+                LevelData level = AssetDatabase.LoadAssetAtPath<LevelData>(path);
+                if (level == null || !IsValidLevelAsset(level) || seen.Contains(level.levelIndex))
+                    continue;
+
+                seen.Add(level.levelIndex);
+                list.Add(level);
+            }
+
+            list.Sort((a, b) => a.levelIndex.CompareTo(b.levelIndex));
+            return list;
+        }
+
+        private void NavigateAdjacentLevel(int direction, List<LevelData> levels = null)
+        {
+            levels ??= GetSortedLevelAssets();
+            if (levels.Count == 0) return;
+
+            int currentIdx = targetLevel != null ? levels.FindIndex(l => l == targetLevel) : -1;
+            int nextIdx;
+
+            if (currentIdx < 0)
+                nextIdx = direction < 0 ? levels.Count - 1 : 0;
+            else
+                nextIdx = currentIdx + direction;
+
+            if (nextIdx < 0 || nextIdx >= levels.Count) return;
+
+            LevelData next = levels[nextIdx];
+            if (!IsValidLevelAsset(next)) return;
+
+            targetLevel = next;
+            selectedPiece = null;
+            CancelPieceDrag();
+            Selection.activeObject = next;
+            GUI.FocusControl(null);
+            Repaint();
         }
     }
 }

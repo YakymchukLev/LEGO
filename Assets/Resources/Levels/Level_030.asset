@@ -10,7 +10,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: b88ac82cc0efa2b4bb3e367166d626e1, type: 3}
-  m_Name: 
+  m_Name: Level_030
   m_EditorClassIdentifier: 
   levelIndex: 30
   levelTitle: Level 30
@@ -327,6 +327,7 @@ MonoBehaviour:
     isDoubleBlock: 1
     innerColorType: 1
     innerCustomColor: {r: 0, g: 0, b: 1, a: 1}
+    isMovableBarrier: 0
   - pieceId: Piece_2
     shape: {fileID: 11400000, guid: 50f163b080ad1ee40b703a613a544f86, type: 2}
     originPosition: {x: 1, y: 3}
@@ -340,3 +341,4 @@ MonoBehaviour:
     isDoubleBlock: 0
     innerColorType: 2
     innerCustomColor: {r: 0, g: 0, b: 1, a: 1}
+    isMovableBarrier: 0

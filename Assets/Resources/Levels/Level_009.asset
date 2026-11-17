@@ -10,7 +10,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: b88ac82cc0efa2b4bb3e367166d626e1, type: 3}
-  m_Name: 
+  m_Name: Level_009
   m_EditorClassIdentifier: 
   levelIndex: 9
   levelTitle: Level 9
@@ -516,6 +516,10 @@ MonoBehaviour:
     moveRestriction: 0
     isRequiredForWin: 1
     freezeCount: 0
+    isDoubleBlock: 0
+    innerColorType: 2
+    innerCustomColor: {r: 0, g: 0, b: 1, a: 1}
+    isMovableBarrier: 0
   - pieceId: Piece_2
     shape: {fileID: 11400000, guid: 9fc706dc773b47e4288a23054b569d3c, type: 2}
     originPosition: {x: 2, y: 5}
@@ -526,6 +530,10 @@ MonoBehaviour:
     moveRestriction: 0
     isRequiredForWin: 1
     freezeCount: 0
+    isDoubleBlock: 0
+    innerColorType: 2
+    innerCustomColor: {r: 0, g: 0, b: 1, a: 1}
+    isMovableBarrier: 0
   - pieceId: Piece_3
     shape: {fileID: 11400000, guid: 209b5544d92aeca469fd6a76d79ccb61, type: 2}
     originPosition: {x: 1, y: 2}
@@ -536,6 +544,10 @@ MonoBehaviour:
     moveRestriction: 0
     isRequiredForWin: 1
     freezeCount: 0
+    isDoubleBlock: 0
+    innerColorType: 2
+    innerCustomColor: {r: 0, g: 0, b: 1, a: 1}
+    isMovableBarrier: 0
   - pieceId: Piece_4
     shape: {fileID: 11400000, guid: b36e75a92de921944b081e999ab893ee, type: 2}
     originPosition: {x: 7, y: 5}
@@ -546,6 +558,10 @@ MonoBehaviour:
     moveRestriction: 0
     isRequiredForWin: 1
     freezeCount: 0
+    isDoubleBlock: 0
+    innerColorType: 2
+    innerCustomColor: {r: 0, g: 0, b: 1, a: 1}
+    isMovableBarrier: 0
   - pieceId: Piece_5
     shape: {fileID: 11400000, guid: 209b5544d92aeca469fd6a76d79ccb61, type: 2}
     originPosition: {x: 2, y: 6}
@@ -556,6 +572,10 @@ MonoBehaviour:
     moveRestriction: 0
     isRequiredForWin: 1
     freezeCount: 0
+    isDoubleBlock: 0
+    innerColorType: 2
+    innerCustomColor: {r: 0, g: 0, b: 1, a: 1}
+    isMovableBarrier: 0
   - pieceId: Piece_6
     shape: {fileID: 11400000, guid: b36e75a92de921944b081e999ab893ee, type: 2}
     originPosition: {x: 5, y: 5}
@@ -566,6 +586,10 @@ MonoBehaviour:
     moveRestriction: 0
     isRequiredForWin: 1
     freezeCount: 0
+    isDoubleBlock: 0
+    innerColorType: 2
+    innerCustomColor: {r: 0, g: 0, b: 1, a: 1}
+    isMovableBarrier: 0
   - pieceId: Piece_7
     shape: {fileID: 11400000, guid: b36e75a92de921944b081e999ab893ee, type: 2}
     originPosition: {x: 5, y: 1}
@@ -576,6 +600,10 @@ MonoBehaviour:
     moveRestriction: 0
     isRequiredForWin: 1
     freezeCount: 0
+    isDoubleBlock: 0
+    innerColorType: 2
+    innerCustomColor: {r: 0, g: 0, b: 1, a: 1}
+    isMovableBarrier: 0
   - pieceId: Piece_8
     shape: {fileID: 11400000, guid: 209b5544d92aeca469fd6a76d79ccb61, type: 2}
     originPosition: {x: 6, y: 2}
@@ -586,3 +614,7 @@ MonoBehaviour:
     moveRestriction: 0
     isRequiredForWin: 1
     freezeCount: 0
+    isDoubleBlock: 0
+    innerColorType: 2
+    innerCustomColor: {r: 0, g: 0, b: 1, a: 1}
+    isMovableBarrier: 0

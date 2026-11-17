@@ -395,32 +395,15 @@ namespace LegoPuzzle.Editor
                 return result;
             }
 
-            int targetMoves = settings.targetMinMoves;
+            // Більше дозволів (1x1, Free, рідка сітка, post-hoc механіки) → легші базові розкладки.
+            // Компенсуємо вищим порогом ходів / scramble, інакше "все увімкнено" = простіше.
+            ComputeDifficultyCompensation(settings, out int targetMoves, out int minAcceptableMoves, out int scrambleBonus);
+            int effectiveScrambleSteps = Mathf.Clamp(settings.scrambleSteps + scrambleBonus, settings.scrambleSteps, 450);
+
             int maxAttempts = 120;
             LevelData bestLevel = null;
             SolverResult bestSolver = default;
             int bestMoveCount = -1;
-
-            int minAcceptableMoves = settings.difficultyTier switch
-            {
-                DifficultyTier.VeryEasy => 2,
-                DifficultyTier.Easy => 3,
-                DifficultyTier.Medium => 5,
-                DifficultyTier.Hard => 7,
-                DifficultyTier.VeryHard => 9,
-                DifficultyTier.Expert => 11,
-                _ => Mathf.Max(2, (int)(settings.targetMinMoves * 0.6f))
-            };
-
-            // Динамічна адаптація порогу ходів, якщо користувач зменшив кількість деталей
-            if (settings.pieceCount <= 3)
-            {
-                minAcceptableMoves = Mathf.Min(minAcceptableMoves, 2);
-            }
-            else if (settings.pieceCount <= 5)
-            {
-                minAcceptableMoves = Mathf.Min(minAcceptableMoves, 4);
-            }
 
             for (int attempt = 0; attempt < maxAttempts; attempt++)
             {
@@ -433,7 +416,10 @@ namespace LegoPuzzle.Editor
                 candidate.gridHeight = settings.gridHeight;
                 candidate.EnsureGridCapacity();
 
-                bool ok = BuildLevelWithReverseSolver(candidate, settings, shapePool, rng, out Vector2Int[] targetGateOrigins, out List<string> reverseSolutionTrace);
+                bool ok = BuildLevelWithReverseSolver(
+                    candidate, settings, shapePool, rng,
+                    out Vector2Int[] targetGateOrigins, out List<string> reverseSolutionTrace,
+                    scrambleStepsOverride: effectiveScrambleSteps);
                 if (!ok)
                 {
                     UnityEngine.Object.DestroyImmediate(candidate);
@@ -575,11 +561,10 @@ namespace LegoPuzzle.Editor
                     var solver = SolveLevelBFS(fallback, 35000, fallbackTargets);
                     if (solver.isSolvable && solver.optimalMoves >= 3)
                     {
-                        if (TryApplySolvableDoubleBlocks(fallback, fallbackSettings, rng, fallbackTargets, solver, out SolverResult withDoubles))
-                            solverResult = withDoubles;
-                        else
-                            solverResult = solver;
-                        return fallback;
+                        GenerationResult committed = CommitLevelWithOptionalDoubles(
+                            fallback, fallbackSettings, rng, fallbackTargets, solver);
+                        solverResult = committed.solverResult;
+                        return committed.levelData;
                     }
                 }
                 UnityEngine.Object.DestroyImmediate(fallback);
@@ -773,7 +758,7 @@ namespace LegoPuzzle.Editor
 
             if (settings != null && settings.allowMovableBarriers)
             {
-                if (TryApplyMovableBarriers(level, settings, rng, out SolverResult withBarriers))
+                if (TryApplyMovableBarriers(level, settings, rng, currentSolver, out SolverResult withBarriers))
                 {
                     currentSolver = withBarriers;
                     if (HasAnyMovableBarrier(level))
@@ -812,23 +797,32 @@ namespace LegoPuzzle.Editor
         }
 
         /// <summary>
-        /// Places optional 1x1 movable barriers after a solvable layout, then re-validates with BFS.
+        /// Places optional 1x1 movable barriers after a solvable layout.
+        /// 1) Prefer edge/obstacle-adjacent cells + static validate (cheap).
+        /// 2) Fall back to movable BFS (barrier can be pushed aside).
+        /// 3) Reduce count until at least one barrier sticks.
         /// </summary>
         private static bool TryApplyMovableBarriers(
             LevelData level,
             GenerationSettings settings,
             System.Random rng,
+            SolverResult baseSolver,
             out SolverResult finalSolver)
         {
-            finalSolver = default;
+            finalSolver = baseSolver;
             if (level == null || settings == null || !settings.allowMovableBarriers || level.pieces == null)
                 return false;
+
+            Debug.Log($"LegoLevelGenerator: 🧱 спроба додати бар'єри ×{Mathf.Max(1, settings.movableBarrierCount)} (деталей зараз: {level.pieces.Count}).");
 
             ClearMovableBarriers(level);
 
             int room = Mathf.Max(0, 16 - level.pieces.Count); // BFS hard cap
             if (room == 0)
+            {
+                Debug.LogWarning("LegoLevelGenerator: немає місця під бар'єри (ліміт 16 деталей у BFS).");
                 return false;
+            }
 
             int desired = Mathf.Clamp(settings.movableBarrierCount > 0 ? settings.movableBarrierCount : 1, 1, Mathf.Min(6, room));
             LegoShapeDefinition shape1x1 = FindShape1x1();
@@ -838,6 +832,109 @@ namespace LegoPuzzle.Editor
                 return false;
             }
 
+            List<Vector2Int> baseCandidates = CollectBarrierCandidateCells(level, shape1x1);
+            if (baseCandidates.Count == 0)
+            {
+                Debug.LogWarning("LegoLevelGenerator: немає вільних клітинок для рухомих бар'єрів.");
+                return false;
+            }
+
+            PreferPeripheralBarrierCells(level, baseCandidates);
+
+            for (int count = desired; count >= 1; count--)
+            {
+                // Phase A: static blockers (fast) — barrier never needs to move.
+                if (TryPlaceBarriersWithValidation(level, shape1x1, baseCandidates, count, rng, treatAsStatic: true, maxStates: 60000, out finalSolver))
+                    return true;
+
+                // Phase B: movable barriers — may need to be slid aside for the solution.
+                if (TryPlaceBarriersWithValidation(level, shape1x1, baseCandidates, count, rng, treatAsStatic: false, maxStates: 150000, out finalSolver))
+                    return true;
+            }
+
+            // Phase C: last resort — always place Free barriers on peripheral empty cells.
+            // Base layout was solvable; barriers are optional (not required for win) and Free to move.
+            PreferPeripheralBarrierCells(level, baseCandidates);
+            ClearMovableBarriers(level);
+            int forced = PlaceFreeBarriers(level, shape1x1, baseCandidates, Mathf.Min(desired, 2));
+            if (forced > 0)
+            {
+                SolverResult staticSolve = SolveLevelBFS(level, 100000, null, treatBarriersAsStatic: true);
+                if (staticSolve.isSolvable)
+                {
+                    finalSolver = staticSolve;
+                    Debug.Log($"LegoLevelGenerator: 🧱 бар'єри ({forced}) додано (static pocket).");
+                    return true;
+                }
+
+                SolverResult movable = SolveLevelBFS(level, 150000, null, treatBarriersAsStatic: false);
+                if (movable.isSolvable)
+                {
+                    finalSolver = movable;
+                    Debug.Log($"LegoLevelGenerator: 🧱 бар'єри ({forced}) додано (movable validate).");
+                    return true;
+                }
+
+                // Keep barriers + original solve stats (BFS state space too large / blocked).
+                finalSolver = baseSolver;
+                Debug.LogWarning($"LegoLevelGenerator: 🧱 бар'єри ({forced}) додано без повторної BFS-перевірки. Переглянь рівень у прев'ю.");
+                return true;
+            }
+
+            ClearMovableBarriers(level);
+            Debug.LogWarning($"LegoLevelGenerator: не вдалося розмістити рухомі бар'єри (просили {desired}, вільних клітинок {baseCandidates.Count}).");
+            return false;
+        }
+
+        private static bool TryPlaceBarriersWithValidation(
+            LevelData level,
+            LegoShapeDefinition shape1x1,
+            List<Vector2Int> baseCandidates,
+            int count,
+            System.Random rng,
+            bool treatAsStatic,
+            int maxStates,
+            out SolverResult finalSolver)
+        {
+            finalSolver = default;
+            int attempts = Mathf.Clamp(14 + count * 6, 16, 40);
+            for (int attempt = 0; attempt < attempts; attempt++)
+            {
+                ClearMovableBarriers(level);
+
+                List<Vector2Int> candidates = new List<Vector2Int>(baseCandidates);
+                PreferPeripheralBarrierCells(level, candidates);
+                // Rotate starting offset so attempts explore different peripheral cells.
+                if (candidates.Count > 1)
+                {
+                    int rot = (rng != null ? rng.Next(candidates.Count) : attempt) % candidates.Count;
+                    if (rot > 0)
+                    {
+                        List<Vector2Int> rotated = new List<Vector2Int>(candidates.Count);
+                        for (int i = 0; i < candidates.Count; i++)
+                            rotated.Add(candidates[(i + rot) % candidates.Count]);
+                        candidates = rotated;
+                    }
+                }
+
+                int placed = PlaceFreeBarriers(level, shape1x1, candidates, count);
+                if (placed < count)
+                    continue;
+
+                SolverResult solved = SolveLevelBFS(level, maxStates, null, treatBarriersAsStatic: treatAsStatic);
+                if (!solved.isSolvable)
+                    continue;
+
+                finalSolver = solved;
+                return true;
+            }
+
+            ClearMovableBarriers(level);
+            return false;
+        }
+
+        private static List<Vector2Int> CollectBarrierCandidateCells(LevelData level, LegoShapeDefinition shape1x1)
+        {
             List<Vector2Int> candidates = new List<Vector2Int>();
             int W = level.gridWidth;
             int H = level.gridHeight;
@@ -852,32 +949,57 @@ namespace LegoPuzzle.Editor
                         candidates.Add(pos);
                 }
             }
+            return candidates;
+        }
 
-            if (candidates.Count == 0)
-                return false;
+        /// <summary>
+        /// Stable-sort candidates so cells next to obstacles / border come first.
+        /// </summary>
+        private static void PreferPeripheralBarrierCells(LevelData level, List<Vector2Int> candidates)
+        {
+            if (candidates == null || candidates.Count <= 1) return;
 
-            if (rng != null)
-                ShuffleList(candidates, rng);
+            int W = level.gridWidth;
+            int H = level.gridHeight;
+            candidates.Sort((a, b) =>
+            {
+                int sa = BarrierCellScore(level, a, W, H);
+                int sb = BarrierCellScore(level, b, W, H);
+                return sb.CompareTo(sa); // higher score first
+            });
+        }
 
-            // Optional slider / freeze flavors for barriers (validated by BFS below).
-            List<MoveRestriction> barrierMoves = new List<MoveRestriction> { MoveRestriction.Free };
-            if (settings.allowHorizontalOnly) barrierMoves.Add(MoveRestriction.HorizontalOnly);
-            if (settings.allowVerticalOnly) barrierMoves.Add(MoveRestriction.VerticalOnly);
+        private static int BarrierCellScore(LevelData level, Vector2Int pos, int W, int H)
+        {
+            int score = 0;
+            // Prefer near inner edge of the playable ring.
+            int edgeDist = Mathf.Min(Mathf.Min(pos.x, W - 1 - pos.x), Mathf.Min(pos.y, H - 1 - pos.y));
+            score += Mathf.Clamp(4 - edgeDist, 0, 4) * 3;
 
+            Vector2Int[] neigh = { Vector2Int.up, Vector2Int.down, Vector2Int.left, Vector2Int.right };
+            for (int i = 0; i < neigh.Length; i++)
+            {
+                Vector2Int n = pos + neigh[i];
+                if (n.x < 0 || n.x >= W || n.y < 0 || n.y >= H) { score += 2; continue; }
+                CellType t = level.GetCell(n.x, n.y).cellType;
+                if (t == CellType.Obstacle || t == CellType.HalfObstacle || t == CellType.QuarterObstacle)
+                    score += 4;
+            }
+            return score;
+        }
+
+        private static int PlaceFreeBarriers(
+            LevelData level,
+            LegoShapeDefinition shape1x1,
+            List<Vector2Int> candidates,
+            int count)
+        {
             int placed = 0;
-            for (int i = 0; i < candidates.Count && placed < desired; i++)
+            for (int i = 0; i < candidates.Count && placed < count; i++)
             {
                 Vector2Int origin = candidates[i];
                 if (!CanFitAt(level, shape1x1, 0, origin, level.pieces, null))
                     continue;
-
-                MoveRestriction restr = barrierMoves[rng != null ? rng.Next(barrierMoves.Count) : 0];
-                int freeze = 0;
-                if (settings.allowFrozenPieces && rng != null && rng.NextDouble() < 0.45)
-                {
-                    int maxFreeze = Mathf.Clamp(settings.maxFreezeCount, 1, 5);
-                    freeze = rng.Next(1, maxFreeze + 1);
-                }
 
                 level.pieces.Add(new LegoPieceData
                 {
@@ -887,29 +1009,25 @@ namespace LegoPuzzle.Editor
                     rotationSteps = 0,
                     flipHorizontal = false,
                     colorType = BlockColorType.Red,
-                    moveRestriction = restr,
-                    freezeCount = freeze,
+                    moveRestriction = MoveRestriction.Free,
+                    freezeCount = 0,
                     isDoubleBlock = false,
                     isMovableBarrier = true,
                     isRequiredForWin = false
                 });
                 placed++;
             }
-
-            if (placed == 0)
-                return false;
-
-            // Piece count changed — recompute gate targets inside BFS (pass null).
-            finalSolver = SolveLevelBFS(level, 60000, null);
-            if (finalSolver.isSolvable)
-                return true;
-
-            ClearMovableBarriers(level);
-            return false;
+            return placed;
         }
 
         private static LegoShapeDefinition FindShape1x1()
         {
+            const string knownPath = "Assets/Scripts/LevelSystem/Shape_1x1.asset";
+            var direct = AssetDatabase.LoadAssetAtPath<LegoShapeDefinition>(knownPath);
+            if (direct != null)
+                return direct;
+
+            LegoShapeDefinition fuzzy = null;
             string[] guids = AssetDatabase.FindAssets("t:LegoShapeDefinition");
             for (int i = 0; i < guids.Length; i++)
             {
@@ -917,10 +1035,12 @@ namespace LegoPuzzle.Editor
                 var shape = AssetDatabase.LoadAssetAtPath<LegoShapeDefinition>(path);
                 if (shape == null) continue;
                 string name = (string.IsNullOrEmpty(shape.shapeId) ? shape.name : shape.shapeId).ToLowerInvariant();
-                if (name.Contains("1x1") || name.Contains("1_1"))
+                if (name == "shape_1x1" || name == "1x1")
                     return shape;
+                if (fuzzy == null && (name.Contains("1x1") || name.Contains("1_1")))
+                    fuzzy = shape;
             }
-            return null;
+            return fuzzy;
         }
 
         private static bool PieceMustExitForSolve(LegoPieceData piece)
@@ -1243,7 +1363,8 @@ namespace LegoPuzzle.Editor
             List<LegoShapeDefinition> shapePool,
             System.Random rng,
             out Vector2Int[] targetGateOrigins,
-            out List<string> reverseSolutionTrace)
+            out List<string> reverseSolutionTrace,
+            int scrambleStepsOverride = -1)
         {
             reverseSolutionTrace = new List<string>();
             var stepTrace = new List<GeneratorStepTrace>();
@@ -1251,6 +1372,10 @@ namespace LegoPuzzle.Editor
             int H = settings.gridHeight;
             int count = Mathf.Clamp(settings.pieceCount, 1, 16);
             targetGateOrigins = new Vector2Int[count];
+            int scrambleSteps = scrambleStepsOverride > 0 ? scrambleStepsOverride : settings.scrambleSteps;
+            bool preferBulkierShapes = settings.useShape1x1
+                || CountEnabledShapes(settings) >= 5
+                || settings.targetMinMoves >= 10;
 
             // КРОК 1: Створення периметра з ПРАВИЛЬНИМИ орієнтаціями Inward (до центру поля)
             for (int y = 0; y < H; y++)
@@ -1363,16 +1488,33 @@ namespace LegoPuzzle.Editor
             }
             else if (settings.difficultyTier == DifficultyTier.Custom)
             {
-                // Для власної складності: чесний вибір серед увімкнених користувачем типів обмежень
-                var allowedRestrictions = new List<MoveRestriction>();
-                if (settings.allowFreeMove) allowedRestrictions.Add(MoveRestriction.Free);
-                if (settings.allowHorizontalOnly) allowedRestrictions.Add(MoveRestriction.HorizontalOnly);
-                if (settings.allowVerticalOnly) allowedRestrictions.Add(MoveRestriction.VerticalOnly);
-                if (allowedRestrictions.Count == 0) allowedRestrictions.Add(MoveRestriction.Free);
+                // Custom: якщо увімкнені і Free, і слайдери — частіше слайдери (інакше рівні стають занадто легкими).
+                var sliderRestrictions = new List<MoveRestriction>();
+                if (settings.allowHorizontalOnly) sliderRestrictions.Add(MoveRestriction.HorizontalOnly);
+                if (settings.allowVerticalOnly) sliderRestrictions.Add(MoveRestriction.VerticalOnly);
+
+                bool hasFree = settings.allowFreeMove;
+                if (!hasFree && sliderRestrictions.Count == 0)
+                    sliderRestrictions.Add(MoveRestriction.Free);
 
                 for (int i = 0; i < count; i++)
                 {
-                    restrictions.Add(allowedRestrictions[rng.Next(allowedRestrictions.Count)]);
+                    if (hasFree && sliderRestrictions.Count > 0)
+                    {
+                        // ~65% слайдери, ~35% Free — тримає контроль без повної втрати Free.
+                        if (rng.NextDouble() < 0.65)
+                            restrictions.Add(sliderRestrictions[rng.Next(sliderRestrictions.Count)]);
+                        else
+                            restrictions.Add(MoveRestriction.Free);
+                    }
+                    else if (sliderRestrictions.Count > 0)
+                    {
+                        restrictions.Add(sliderRestrictions[rng.Next(sliderRestrictions.Count)]);
+                    }
+                    else
+                    {
+                        restrictions.Add(MoveRestriction.Free);
+                    }
                 }
             }
             else
@@ -1423,7 +1565,7 @@ namespace LegoPuzzle.Editor
 
                 for (int shapeTry = 0; shapeTry < 60 && !placed; shapeTry++)
                 {
-                    var shape = shapePool[rng.Next(shapePool.Count)];
+                    var shape = PickShapeWeighted(shapePool, rng, preferBulkierShapes);
                     int rot = rng.Next(4);
                     var offsets = shape.GetRotatedOffsets(rot);
                     Vector2Int bounds = shape.GetRotatedBounds(rot);
@@ -1603,7 +1745,7 @@ namespace LegoPuzzle.Editor
             level.pieces = pieceList;
 
             // КРОК 5: Глибокий Scramble та усунення негайних виходів
-            bool scrambleOk = ExecuteDeepReverseScramble(level, settings.scrambleSteps, rng, targetGateOrigins, stepTrace);
+            bool scrambleOk = ExecuteDeepReverseScramble(level, scrambleSteps, rng, targetGateOrigins, stepTrace);
             if (!scrambleOk) return false;
 
             reverseSolutionTrace = BuildReverseSolutionTrace(level, stepTrace);
@@ -2456,7 +2598,14 @@ namespace LegoPuzzle.Editor
             return piece.colorType;
         }
 
-        public static SolverResult SolveLevelBFS(LevelData level, int maxStates = 60000, Vector2Int[] targetGateOrigins = null)
+        /// <param name="treatBarriersAsStatic">
+        /// When true, movable barriers stay fixed as blockers (used to validate barrier placement cheaply).
+        /// </param>
+        public static SolverResult SolveLevelBFS(
+            LevelData level,
+            int maxStates = 60000,
+            Vector2Int[] targetGateOrigins = null,
+            bool treatBarriersAsStatic = false)
         {
             var result = new SolverResult
             {
@@ -2643,6 +2792,10 @@ namespace LegoPuzzle.Editor
                     var pieceData = level.pieces[i];
                     bool isBarrier = pieceData != null && pieceData.isMovableBarrier;
 
+                    // Placement validation: barriers stay put as fixed blockers.
+                    if (treatBarriersAsStatic && isBarrier)
+                        continue;
+
                     // Механіка замороженого блоку: якщо лічильник > кількості знищень, деталь нерухома!
                     if (pieceData.freezeCount > destroyEvents)
                         continue;
@@ -2826,6 +2979,117 @@ namespace LegoPuzzle.Editor
         #endregion
 
         #region Helpers
+
+        /// <summary>
+        /// More permissive settings make solvable layouts easier to find — raise move/scramble bars.
+        /// </summary>
+        private static void ComputeDifficultyCompensation(
+            GenerationSettings settings,
+            out int targetMoves,
+            out int minAcceptableMoves,
+            out int scrambleBonus)
+        {
+            int ease = 0;
+
+            if (settings.useShape1x1)
+                ease += 4; // 1x1 сильно спрощує маневри та виходи
+
+            int shapeCount = CountEnabledShapes(settings);
+            if (shapeCount >= 7) ease += 3;
+            else if (shapeCount >= 5) ease += 2;
+            else if (shapeCount >= 4) ease += 1;
+
+            if (settings.allowFreeMove && (settings.allowHorizontalOnly || settings.allowVerticalOnly))
+                ease += 2; // рівномірний Free розмиває складність слайдерів
+
+            int innerCells = Mathf.Max(1, (settings.gridWidth - 2) * (settings.gridHeight - 2));
+            float density = settings.pieceCount / (float)innerCells;
+            if (density < 0.10f) ease += 4;
+            else if (density < 0.14f) ease += 2;
+            else if (density < 0.18f) ease += 1;
+
+            // Post-hoc механіки не ускладнюють базовий BFS — вимагаємо жорсткішу базу.
+            if (settings.allowFrozenPieces) ease += 1;
+            if (settings.allowDoubleBlocks) ease += 1;
+            if (settings.allowMovableBarriers) ease += 1;
+            if (settings.allowObstacles && settings.obstacleCount > 0) ease += 0; // obstacles usually harden
+
+            targetMoves = Mathf.Clamp(settings.targetMinMoves + ease, settings.targetMinMoves, 60);
+            scrambleBonus = ease * 18;
+
+            minAcceptableMoves = settings.difficultyTier switch
+            {
+                DifficultyTier.VeryEasy => 2,
+                DifficultyTier.Easy => 3,
+                DifficultyTier.Medium => 5,
+                DifficultyTier.Hard => 7,
+                DifficultyTier.VeryHard => 9,
+                DifficultyTier.Expert => 11,
+                _ => Mathf.Max(2, (int)(targetMoves * 0.7f))
+            };
+
+            // Підтягуємо мінімум ближче до компенсованої цілі (не даємо здати «майже простий» best).
+            minAcceptableMoves = Mathf.Max(minAcceptableMoves, Mathf.Max(2, (int)(targetMoves * 0.72f)));
+
+            if (settings.pieceCount <= 3)
+                minAcceptableMoves = Mathf.Min(minAcceptableMoves, Mathf.Max(2, targetMoves - 4));
+            else if (settings.pieceCount <= 5)
+                minAcceptableMoves = Mathf.Min(minAcceptableMoves, Mathf.Max(3, targetMoves - 3));
+
+            if (ease > 0)
+            {
+                Debug.Log($"LegoLevelGenerator: компенсація складності +{ease} ходів " +
+                          $"(ціль {settings.targetMinMoves}→{targetMoves}, мін.прийнятне {minAcceptableMoves}, scramble +{scrambleBonus}). " +
+                          "Більше дозволів форм/Free зазвичай дає легші розкладки.");
+            }
+        }
+
+        private static int CountEnabledShapes(GenerationSettings settings)
+        {
+            int n = 0;
+            if (settings.useShape1x1) n++;
+            if (settings.useShape1x2) n++;
+            if (settings.useShape1x3) n++;
+            if (settings.useShape2x2) n++;
+            if (settings.useShapeL) n++;
+            if (settings.useShapeL2x2) n++;
+            if (settings.useShapeT3x2) n++;
+            if (settings.useShapeCross3x3) n++;
+            return n;
+        }
+
+        private static LegoShapeDefinition PickShapeWeighted(
+            List<LegoShapeDefinition> pool,
+            System.Random rng,
+            bool preferBulkier)
+        {
+            if (pool == null || pool.Count == 0) return null;
+            if (pool.Count == 1 || rng == null) return pool[0];
+
+            int total = 0;
+            int[] weights = new int[pool.Count];
+            for (int i = 0; i < pool.Count; i++)
+            {
+                int cells = pool[i].localOccupiedCells != null ? pool[i].localOccupiedCells.Count : 1;
+                cells = Mathf.Max(1, cells);
+                // 1x1 залишаємо рідкісним, коли є інші форми — інакше рівні «розсипаються».
+                if (preferBulkier)
+                    weights[i] = cells <= 1 ? 1 : cells * cells;
+                else
+                    weights[i] = cells;
+                total += weights[i];
+            }
+
+            int roll = rng.Next(total);
+            int acc = 0;
+            for (int i = 0; i < pool.Count; i++)
+            {
+                acc += weights[i];
+                if (roll < acc)
+                    return pool[i];
+            }
+            return pool[pool.Count - 1];
+        }
 
         private static List<LegoShapeDefinition> LoadShapesMatchingSettings(GenerationSettings settings)
         {
