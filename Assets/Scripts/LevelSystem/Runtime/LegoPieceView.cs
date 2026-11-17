@@ -62,12 +62,17 @@ namespace LegoPuzzle.Runtime
         private SpriteRenderer freezeBadgeBgRenderer;
         private TextMeshPro freezeBadgeText;
         private GameObject iceShellObj;
-        private MeshFilter iceShellMeshFilter;
-        private MeshRenderer iceShellMeshRenderer;
+        private Renderer[] iceShellRenderers;
         private static Material sharedIceMaterial;
         private MaterialPropertyBlock iceMpb;
         private Coroutine crackPulseCoroutine;
-        private const float FreezeBadgeScale = 0.44f;
+        private const float IceShellInflate = 1.08f;
+        private const float IceShellLocalScaleY = 0.67f;
+        private const float IceShellLocalPosY = 0.33f;
+        // Сніжинка заповнює майже весь спрайт (на відміну від компактного 8-кутника) —
+        // тому scale менший, щоб візуальний розмір лишився як раніше.
+        public const float FreezeBadgeScale = 0.28f;
+        public const float FreezeBadgeFontSize = 12f;
         private Coroutine frozenShakeCoroutine;
         private Coroutine badgePulseCoroutine;
 
@@ -1371,6 +1376,7 @@ namespace LegoPuzzle.Runtime
             {
                 Destroy(iceShellObj);
                 iceShellObj = null;
+                iceShellRenderers = null;
             }
 
             if (freezeBadgeObj != null)
@@ -1654,36 +1660,175 @@ namespace LegoPuzzle.Runtime
                 return;
             }
 
-            if (iceShellObj == null)
+            // Завжди перебудовуємо з актуальної моделі блоку (форма/поворот/масштаб).
+            if (iceShellObj != null)
             {
+                Destroy(iceShellObj);
+                iceShellObj = null;
+                iceShellRenderers = null;
+            }
+
+            Transform parentT = visualRoot != null ? visualRoot.transform : transform;
+
+            if (modelInstance != null)
+            {
+                iceShellObj = Instantiate(modelInstance, parentT, false);
+                iceShellObj.name = "IceShell";
+                iceShellObj.transform.localPosition = modelInstance.transform.localPosition;
+                iceShellObj.transform.localRotation = modelInstance.transform.localRotation;
+                iceShellObj.transform.localScale = modelInstance.transform.localScale;
+
+                StripPhysicsAndScripts(iceShellObj);
+                StripNonVisualIceCloneExtras(iceShellObj);
+                ApplyIceMaterialToShell(iceShellObj);
+                FitIceShellOverModel();
+            }
+            else
+            {
+                // Fallback без 3D-моделі: процедурний shell по клітинках.
                 iceShellObj = new GameObject("IceShell");
-                Transform parentT = visualRoot != null ? visualRoot.transform : transform;
                 iceShellObj.transform.SetParent(parentT, false);
                 iceShellObj.transform.localPosition = Vector3.zero;
                 iceShellObj.transform.localRotation = Quaternion.identity;
                 iceShellObj.transform.localScale = Vector3.one;
 
-                iceShellMeshFilter = iceShellObj.AddComponent<MeshFilter>();
-                iceShellMeshRenderer = iceShellObj.AddComponent<MeshRenderer>();
-            }
-            else if (visualRoot != null)
-            {
-                iceShellObj.transform.SetParent(visualRoot.transform, false);
+                var filter = iceShellObj.AddComponent<MeshFilter>();
+                var rend = iceShellObj.AddComponent<MeshRenderer>();
+                float modelHeight = GetModelHeight();
+                filter.sharedMesh = GenerateIceShellMesh(currentOffsets, cellSize, visualCenter, modelHeight);
+                rend.sharedMaterial = GetOrCreateIceMaterial();
+                rend.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                rend.receiveShadows = false;
+                iceShellRenderers = new Renderer[] { rend };
+                ApplyIceCrackIntensity(GetTargetCrackIntensity());
             }
 
             iceShellObj.SetActive(true);
+        }
 
-            float modelHeight = GetModelHeight();
-            Mesh iceMesh = GenerateIceShellMesh(currentOffsets, cellSize, visualCenter, modelHeight);
-            iceShellMeshFilter.sharedMesh = iceMesh;
-            iceShellMeshRenderer.sharedMaterial = GetOrCreateIceMaterial();
-            iceShellMeshRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-            iceShellMeshRenderer.receiveShadows = false;
+        private void StripNonVisualIceCloneExtras(GameObject root)
+        {
+            if (root == null) return;
 
+            // Прибираємо outline / UI / зайві спрайти з клону — лишаємо тільки меш блоку.
+            // SetActive(false) одразу: Destroy відкладається до кінця кадру, а Fit потребує чистих bounds.
+            var sprites = root.GetComponentsInChildren<SpriteRenderer>(true);
+            for (int i = 0; i < sprites.Length; i++)
+            {
+                if (sprites[i] == null) continue;
+                sprites[i].gameObject.SetActive(false);
+                Destroy(sprites[i].gameObject);
+            }
+
+            var tmps = root.GetComponentsInChildren<TextMeshPro>(true);
+            for (int i = 0; i < tmps.Length; i++)
+            {
+                if (tmps[i] == null) continue;
+                tmps[i].gameObject.SetActive(false);
+                Destroy(tmps[i].gameObject);
+            }
+
+            Transform[] all = root.GetComponentsInChildren<Transform>(true);
+            for (int i = 0; i < all.Length; i++)
+            {
+                if (all[i] == null) continue;
+                string n = all[i].name;
+                if (n.StartsWith("Outline_", System.StringComparison.Ordinal)
+                    || n.Contains("Badge")
+                    || n.Contains("Restriction")
+                    || n.Contains("Shadow"))
+                {
+                    all[i].gameObject.SetActive(false);
+                    Destroy(all[i].gameObject);
+                }
+            }
+        }
+
+        private void ApplyIceMaterialToShell(GameObject root)
+        {
+            if (root == null) return;
+
+            Material iceMat = GetOrCreateIceMaterial();
+            var rends = root.GetComponentsInChildren<Renderer>(true);
+            var list = new List<Renderer>(rends.Length);
+
+            for (int i = 0; i < rends.Length; i++)
+            {
+                Renderer r = rends[i];
+                if (r == null) continue;
+                if (r is SpriteRenderer) continue;
+                if (r.gameObject.name.StartsWith("Outline_", System.StringComparison.Ordinal)) continue;
+
+                r.sharedMaterial = iceMat;
+                r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                r.receiveShadows = false;
+                list.Add(r);
+            }
+
+            iceShellRenderers = list.ToArray();
+            ApplyIceCrackIntensity(GetTargetCrackIntensity());
+        }
+
+        /// <summary>
+        /// XZ трохи більший за модель; Y — фіксовані local scale/pos
+        /// (підібрані під штифти на блоках і рухомих перешкодах).
+        /// </summary>
+        private void FitIceShellOverModel()
+        {
+            if (iceShellObj == null || modelInstance == null) return;
+
+            Vector3 modelPos = modelInstance.transform.localPosition;
+            Vector3 modelScale = modelInstance.transform.localScale;
+
+            iceShellObj.transform.localPosition = new Vector3(modelPos.x, IceShellLocalPosY, modelPos.z);
+            iceShellObj.transform.localScale = new Vector3(
+                modelScale.x * IceShellInflate,
+                IceShellLocalScaleY,
+                modelScale.z * IceShellInflate);
+        }
+
+        private static Bounds GetObjectRendererBounds(GameObject root)
+        {
+            var rends = root != null ? root.GetComponentsInChildren<Renderer>(true) : null;
+            if (rends == null || rends.Length == 0)
+                return new Bounds(root != null ? root.transform.position : Vector3.zero, Vector3.zero);
+
+            Bounds b = default;
+            bool has = false;
+            for (int i = 0; i < rends.Length; i++)
+            {
+                Renderer r = rends[i];
+                if (r == null || r is SpriteRenderer) continue;
+                if (!r.enabled || !r.gameObject.activeInHierarchy) continue;
+                string n = r.gameObject.name;
+                if (n.StartsWith("Outline_", System.StringComparison.Ordinal)
+                    || n.IndexOf("Shadow", System.StringComparison.OrdinalIgnoreCase) >= 0
+                    || n.IndexOf("Badge", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                    continue;
+                if (!has)
+                {
+                    b = r.bounds;
+                    has = true;
+                }
+                else b.Encapsulate(r.bounds);
+            }
+
+            return has ? b : new Bounds(root.transform.position, Vector3.zero);
+        }
+
+        private void ApplyIceCrackIntensity(float intensity)
+        {
+            if (iceShellRenderers == null || iceShellRenderers.Length == 0) return;
             if (iceMpb == null) iceMpb = new MaterialPropertyBlock();
-            iceShellMeshRenderer.GetPropertyBlock(iceMpb);
-            iceMpb.SetFloat("_CrackIntensity", GetTargetCrackIntensity());
-            iceShellMeshRenderer.SetPropertyBlock(iceMpb);
+
+            for (int i = 0; i < iceShellRenderers.Length; i++)
+            {
+                Renderer r = iceShellRenderers[i];
+                if (r == null) continue;
+                r.GetPropertyBlock(iceMpb);
+                iceMpb.SetFloat("_CrackIntensity", intensity);
+                r.SetPropertyBlock(iceMpb);
+            }
         }
 
         private float GetTargetCrackIntensity()
@@ -1703,35 +1848,26 @@ namespace LegoPuzzle.Runtime
 
         private IEnumerator CrackPulseRoutine(float targetIntensity)
         {
-            if (iceShellMeshRenderer == null) yield break;
-            if (iceMpb == null) iceMpb = new MaterialPropertyBlock();
+            if (iceShellRenderers == null || iceShellRenderers.Length == 0) yield break;
 
             float flashIntensity = Mathf.Min(1.0f, targetIntensity + 0.22f);
             float duration = 0.22f;
             float elapsed = 0f;
 
-            while (elapsed < duration && iceShellMeshRenderer != null)
+            while (elapsed < duration && iceShellObj != null)
             {
                 elapsed += Time.deltaTime;
                 float t = elapsed / duration;
                 float cur = Mathf.Lerp(flashIntensity, targetIntensity, t * t);
-                iceShellMeshRenderer.GetPropertyBlock(iceMpb);
-                iceMpb.SetFloat("_CrackIntensity", cur);
-                iceShellMeshRenderer.SetPropertyBlock(iceMpb);
+                ApplyIceCrackIntensity(cur);
                 yield return null;
             }
 
-            if (iceShellMeshRenderer != null)
-            {
-                iceShellMeshRenderer.GetPropertyBlock(iceMpb);
-                iceMpb.SetFloat("_CrackIntensity", targetIntensity);
-                iceShellMeshRenderer.SetPropertyBlock(iceMpb);
-            }
-
+            ApplyIceCrackIntensity(targetIntensity);
             crackPulseCoroutine = null;
         }
 
-        private static Material GetOrCreateIceMaterial()
+        public static Material GetOrCreateIceMaterial()
         {
             if (sharedIceMaterial != null) return sharedIceMaterial;
 
@@ -1786,7 +1922,7 @@ namespace LegoPuzzle.Runtime
             return null;
         }
 
-        private static Mesh GenerateIceShellMesh(List<Vector2Int> offsets, float cellSize, Vector3 visualCenter, float modelHeight)
+        public static Mesh GenerateIceShellMesh(List<Vector2Int> offsets, float cellSize, Vector3 visualCenter, float modelHeight)
         {
             Mesh mesh = new Mesh();
             mesh.name = "IceShellMesh";
@@ -1797,7 +1933,7 @@ namespace LegoPuzzle.Runtime
             float half = cellSize * 0.5f;
             float margin = 0.055f * cellSize;
             float iceBottomY = 0.005f;
-            float iceTopY = modelHeight + 0.045f * cellSize;
+            float iceTopY = modelHeight + 0.12f * cellSize;
 
             List<Vector3> vertices = new List<Vector3>();
             List<Vector3> normals = new List<Vector3>();
@@ -1985,22 +2121,21 @@ namespace LegoPuzzle.Runtime
             float pitch = levelLoader != null ? levelLoader.CameraPitchAngle : 70f;
             freezeBadgeObj.transform.localRotation = Quaternion.Euler(pitch, 0f, 0f);
 
-            float topY = GetModelHeight();
-            float iceTopY = topY + 0.045f * cellSize;
+            // Центр по реальному bounds моделі/льоду — не по середньому offset (він з’їжджав).
+            Bounds visualBounds = modelInstance != null
+                ? GetObjectRendererBounds(modelInstance)
+                : (iceShellObj != null ? GetObjectRendererBounds(iceShellObj) : new Bounds(transform.position, Vector3.one * cellSize));
 
-            float avgX = 0f, avgY = 0f;
-            if (currentOffsets != null && currentOffsets.Count > 0)
-            {
-                foreach (var o in currentOffsets) { avgX += o.x; avgY += o.y; }
-                avgX /= currentOffsets.Count;
-                avgY /= currentOffsets.Count;
-            }
+            float badgeLift = 0.06f * cellSize;
+            Vector3 worldBadgePos = new Vector3(
+                visualBounds.center.x,
+                visualBounds.max.y + badgeLift,
+                visualBounds.center.z);
 
-            Vector3 localPos = visualRoot != null
-                ? new Vector3(avgX * cellSize - visualCenter.x, iceTopY + 0.035f * cellSize, avgY * cellSize - visualCenter.z)
-                : new Vector3(avgX * cellSize, iceTopY + 0.035f * cellSize, avgY * cellSize);
-
-            freezeBadgeObj.transform.localPosition = localPos;
+            Transform badgeParent = freezeBadgeObj.transform.parent;
+            freezeBadgeObj.transform.localPosition = badgeParent != null
+                ? badgeParent.InverseTransformPoint(worldBadgePos)
+                : worldBadgePos;
 
             Transform textTr = freezeBadgeObj.transform.Find("BadgeText");
             GameObject textObj = textTr != null ? textTr.gameObject : new GameObject("BadgeText");
@@ -2018,7 +2153,7 @@ namespace LegoPuzzle.Runtime
             if (font != null) freezeBadgeText.font = font;
 
             freezeBadgeText.text = CurrentFreezeCount.ToString();
-            freezeBadgeText.fontSize = 4.0f * cellSize;
+            freezeBadgeText.fontSize = FreezeBadgeFontSize * cellSize;
             freezeBadgeText.alignment = TextAlignmentOptions.Center;
             freezeBadgeText.fontStyle = FontStyles.Bold;
             freezeBadgeText.color = Color.white;
@@ -2034,6 +2169,26 @@ namespace LegoPuzzle.Runtime
                 return cachedIceBadgeSprite;
             }
 
+            // Сніжинка з Resources (вирізана + кобальтово-блакитна, контрастує з ціановим льодом).
+            Sprite fromResources = Resources.Load<Sprite>("Sprites/freeze_snowflake_badge");
+            if (fromResources != null)
+            {
+                cachedIceBadgeSprite = fromResources;
+                return cachedIceBadgeSprite;
+            }
+
+            Texture2D texFromResources = Resources.Load<Texture2D>("Sprites/freeze_snowflake_badge");
+            if (texFromResources != null)
+            {
+                cachedIceBadgeSprite = Sprite.Create(
+                    texFromResources,
+                    new Rect(0, 0, texFromResources.width, texFromResources.height),
+                    new Vector2(0.5f, 0.5f),
+                    100f);
+                return cachedIceBadgeSprite;
+            }
+
+            // Fallback: процедурний шестикутник, якщо асет відсутній.
             const int size = 128;
             Texture2D tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
             tex.name = "Procedural_IceBadgeSprite";
@@ -2054,10 +2209,7 @@ namespace LegoPuzzle.Runtime
                     float ax = Mathf.Abs(nx);
                     float ay = Mathf.Abs(ny);
 
-                    // Hexagonal distance (vertical hexagon)
                     float hexDist = Mathf.Max(ax * 0.866025f + ay * 0.5f, ay);
-
-                    // Corner rounding via superellipse blend
                     float cornerDist = Mathf.Pow(ax, 3f) + Mathf.Pow(ay, 3f);
                     float dist = Mathf.Lerp(hexDist, Mathf.Pow(cornerDist, 1f / 3f), 0.35f);
 
@@ -2068,34 +2220,14 @@ namespace LegoPuzzle.Runtime
                     else
                     {
                         float aa = Mathf.Clamp01((1.05f - dist) / 0.08f);
-
-                        Color col;
-                        if (dist > 0.80f)
-                        {
-                            // Outer icy glowing rim: frosty cyan to brilliant white
-                            float rimT = (dist - 0.80f) / 0.25f;
-                            col = Color.Lerp(new Color(0.35f, 0.90f, 1f, 0.95f), Color.white, rimT * 0.85f);
-                        }
-                        else if (dist > 0.68f)
-                        {
-                            // Inner rim highlight: pure frost
-                            col = new Color(0.90f, 0.98f, 1f, 0.92f);
-                        }
-                        else
-                        {
-                            // Translucent frosted glass core: allow Lego brick and studs below to be seen
-                            float grad = Mathf.Clamp01((ny + 0.8f) * 0.6f);
-                            Color deepIce = new Color(0.10f, 0.45f, 0.80f, 0.52f);
-                            Color lightIce = new Color(0.30f, 0.72f, 0.98f, 0.62f);
-                            col = Color.Lerp(deepIce, lightIce, grad);
-
-                            // Subtle top crystal glint
-                            if (ny > 0.25f && ax < 0.40f)
-                            {
-                                col = Color.Lerp(col, new Color(1f, 1f, 1f, 0.80f), (ny - 0.25f) * 0.55f);
-                            }
-                        }
-
+                        // Кобальт, не блідий ціан — щоб не зливався з льодом.
+                        float grad = Mathf.Clamp01((ny + 0.8f) * 0.55f);
+                        Color deep = new Color(0.07f, 0.28f, 0.75f, 0.95f);
+                        Color mid = new Color(0.22f, 0.51f, 0.92f, 0.95f);
+                        Color rim = new Color(0.78f, 0.90f, 1f, 0.98f);
+                        Color col = dist > 0.82f
+                            ? Color.Lerp(mid, rim, (dist - 0.82f) / 0.23f)
+                            : Color.Lerp(deep, mid, grad);
                         col.a *= aa;
                         pixels[y * size + x] = col;
                     }
@@ -2774,6 +2906,7 @@ namespace LegoPuzzle.Runtime
             {
                 Destroy(iceShellObj);
                 iceShellObj = null;
+                iceShellRenderers = null;
             }
 
             // 1. Ice shatter debris & sounds
@@ -2865,7 +2998,7 @@ namespace LegoPuzzle.Runtime
             Destroy(debrisRoot, 1.4f);
         }
 
-        private class PieceDebrisMotion : MonoBehaviour
+        public class PieceDebrisMotion : MonoBehaviour
         {
             public void Launch(GameObject target, Vector3 velocity, Vector3 rotSpeed, float floorY)
             {

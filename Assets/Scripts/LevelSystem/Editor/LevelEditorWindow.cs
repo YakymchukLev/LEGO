@@ -23,6 +23,7 @@ namespace LegoPuzzle.Editor
         private ExitDirection brushExitDir = ExitDirection.Up;
         private BlockColorType brushColorType = BlockColorType.Yellow;
         private int brushGateAlignment = 1; // 1 = Ліва/Верхня, 2 = Права/Нижня, 0 = По центру
+        private int brushGateFreezeCount = 0;
 
         // Налаштування для розміщення фігури LEGO
         private LegoShapeDefinition selectedShape;
@@ -409,6 +410,7 @@ namespace LegoPuzzle.Editor
                 {
                     brushExitDir = (ExitDirection)EditorGUILayout.EnumPopup("Напрямок виходу", brushExitDir);
                     brushColorType = (BlockColorType)EditorGUILayout.EnumPopup("Колір воріт", brushColorType);
+                    DrawGateFreezeBrushSettings();
                 }
                 else if (brushCellType == CellType.HalfExitGate)
                 {
@@ -441,6 +443,8 @@ namespace LegoPuzzle.Editor
                         3 => 3, // Right ▐
                         _ => 1
                     };
+
+                    DrawGateFreezeBrushSettings();
                 }
                 else if (brushCellType == CellType.HalfObstacle)
                 {
@@ -658,6 +662,29 @@ namespace LegoPuzzle.Editor
             EditorGUILayout.EndHorizontal();
 
             EditorGUILayout.EndVertical();
+        }
+
+        private void DrawGateFreezeBrushSettings()
+        {
+            EditorGUILayout.Space(4);
+            EditorGUILayout.BeginHorizontal();
+            brushGateFreezeCount = EditorGUILayout.IntField("❄ Лічильник заморозки воріт", Mathf.Max(0, brushGateFreezeCount));
+            if (brushGateFreezeCount > 0 && GUILayout.Button("Скинути на 0", GUILayout.Width(100)))
+                brushGateFreezeCount = 0;
+            EditorGUILayout.EndHorizontal();
+
+            if (brushGateFreezeCount > 0)
+            {
+                EditorGUILayout.HelpBox(
+                    $"Ворота будуть замороженими. Блоки не вийдуть через них, доки не буде знищено/виведено {brushGateFreezeCount} інших блоків (як ❄ на деталях).\nCtrl+клік по вже намальованих воротах оновлює лише лічильник ❄.",
+                    MessageType.Info);
+            }
+            else
+            {
+                EditorGUILayout.HelpBox(
+                    "Ctrl+клік по існуючих воротах оновлює лише лічильник заморозки (0 = розморожені).",
+                    MessageType.None);
+            }
         }
 
         private void DrawShapeQuickSelection()
@@ -1075,13 +1102,30 @@ namespace LegoPuzzle.Editor
 
             if (currentMode == PaintMode.CellBrush)
             {
-                CellData newCell = new CellData(new Vector2Int(x, y), brushCellType)
+                CellData existingCell = targetLevel.GetCell(x, y);
+                bool existingIsGate = existingCell.cellType == CellType.ExitGate
+                                     || existingCell.cellType == CellType.HalfExitGate;
+
+                // Ctrl+клік по існуючих воротах — лише оновити ❄ лічильник (і підхопити його в пензель).
+                if (Event.current != null && Event.current.control && existingIsGate)
                 {
-                    exitDirection = brushExitDir,
-                    gateColorType = brushColorType,
-                    gateAlignment = brushGateAlignment
-                };
-                targetLevel.SetCell(x, y, newCell);
+                    brushGateFreezeCount = Mathf.Max(0, brushGateFreezeCount);
+                    existingCell.freezeCount = brushGateFreezeCount;
+                    targetLevel.SetCell(x, y, existingCell);
+                }
+                else
+                {
+                    CellData newCell = new CellData(new Vector2Int(x, y), brushCellType)
+                    {
+                        exitDirection = brushExitDir,
+                        gateColorType = brushColorType,
+                        gateAlignment = brushGateAlignment,
+                        freezeCount = (brushCellType == CellType.ExitGate || brushCellType == CellType.HalfExitGate)
+                            ? Mathf.Max(0, brushGateFreezeCount)
+                            : 0
+                    };
+                    targetLevel.SetCell(x, y, newCell);
+                }
             }
             else if (currentMode == PaintMode.SelectPiece)
             {

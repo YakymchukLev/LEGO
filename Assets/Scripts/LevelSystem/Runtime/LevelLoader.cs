@@ -1028,10 +1028,13 @@ namespace LegoPuzzle.Runtime
                         cellView = cellObj.AddComponent<GridCellView>();
                     }
 
-                    cellView.Initialize(cellData, palette, cellSize);
+                    cellView.Initialize(cellData, palette, cellSize, this);
                     spawnedCells[new Vector2Int(x, y)] = cellView;
                 }
             }
+
+            // Централізація суміжних воріт одного кольору: 1 стрілка, 1 бейдж, 1 лід, спільний FX.
+            GridCellView.FinalizeGateGroups(spawnedCells, cellSize);
         }
 
         private void SpawnPieces(LevelData levelData)
@@ -1162,7 +1165,7 @@ namespace LegoPuzzle.Runtime
 
             Color pieceColor = piece.PieceData.GetColor();
 
-            HashSet<GridCellView> triggeredGates = new HashSet<GridCellView>();
+            HashSet<GridCellView> triggeredLeaders = new HashSet<GridCellView>();
             foreach (var cell in occupied)
             {
                 Vector2Int checkPos = dir switch
@@ -1176,16 +1179,20 @@ namespace LegoPuzzle.Runtime
 
                 if (spawnedCells.TryGetValue(checkPos, out GridCellView gateView))
                 {
-                    if ((gateView.CellType == CellType.ExitGate || gateView.CellType == CellType.HalfExitGate) && triggeredGates.Add(gateView))
+                    if (gateView.IsExitGate)
                     {
-                        gateView.PlayGateExitReaction(dir, pieceColor);
+                        GridCellView leader = gateView.GateGroupLeader != null ? gateView.GateGroupLeader : gateView;
+                        if (triggeredLeaders.Add(leader))
+                            leader.PlayGateExitReaction(dir, pieceColor);
                     }
                 }
                 else if (spawnedCells.TryGetValue(cell, out GridCellView curGateView))
                 {
-                    if ((curGateView.CellType == CellType.ExitGate || curGateView.CellType == CellType.HalfExitGate) && triggeredGates.Add(curGateView))
+                    if (curGateView.IsExitGate)
                     {
-                        curGateView.PlayGateExitReaction(dir, pieceColor);
+                        GridCellView leader = curGateView.GateGroupLeader != null ? curGateView.GateGroupLeader : curGateView;
+                        if (triggeredLeaders.Add(leader))
+                            leader.PlayGateExitReaction(dir, pieceColor);
                     }
                 }
             }
@@ -2382,30 +2389,54 @@ namespace LegoPuzzle.Runtime
         }
 
         /// <summary>
-        /// Сповіщає всі заморожені блоки на полі про знищення або вихід іншого блоку,
+        /// Сповіщає всі заморожені блоки та ворота на полі про знищення або вихід іншого блоку,
         /// щоб зменшити їхній індивідуальний лічильник заморозки.
         /// </summary>
         public void NotifyPieceDestroyed(LegoPieceView destroyedPiece)
         {
-            if (activePieces == null || activePieces.Count == 0) return;
-
-            List<LegoPieceView> frozenPieces = new List<LegoPieceView>();
-            for (int i = 0; i < activePieces.Count; i++)
+            if (activePieces != null && activePieces.Count > 0)
             {
-                var p = activePieces[i];
-                if (p != null && p != destroyedPiece && p.gameObject.activeSelf && p.IsFrozen)
+                List<LegoPieceView> frozenPieces = new List<LegoPieceView>();
+                for (int i = 0; i < activePieces.Count; i++)
                 {
-                    frozenPieces.Add(p);
+                    var p = activePieces[i];
+                    if (p != null && p != destroyedPiece && p.gameObject.activeSelf && p.IsFrozen)
+                    {
+                        frozenPieces.Add(p);
+                    }
+                }
+
+                for (int i = 0; i < frozenPieces.Count; i++)
+                {
+                    var fp = frozenPieces[i];
+                    if (fp != null && fp.gameObject.activeSelf && fp.IsFrozen)
+                    {
+                        fp.DecrementFreeze();
+                    }
                 }
             }
 
-            for (int i = 0; i < frozenPieces.Count; i++)
+            if (spawnedCells == null || spawnedCells.Count == 0) return;
+
+            // Лише лідери груп воріт — щоб не дублювати ❄ FX на кожній клітинці сегмента.
+            List<GridCellView> frozenGateLeaders = new List<GridCellView>();
+            var seenLeaders = new HashSet<GridCellView>();
+            foreach (var kvp in spawnedCells)
             {
-                var fp = frozenPieces[i];
-                if (fp != null && fp.gameObject.activeSelf && fp.IsFrozen)
-                {
-                    fp.DecrementFreeze();
-                }
+                GridCellView gate = kvp.Value;
+                if (gate == null || !gate.IsExitGate || !gate.IsFrozen || !gate.gameObject.activeInHierarchy)
+                    continue;
+
+                GridCellView leader = gate.GateGroupLeader != null ? gate.GateGroupLeader : gate;
+                if (seenLeaders.Add(leader) && leader.IsFrozen)
+                    frozenGateLeaders.Add(leader);
+            }
+
+            for (int i = 0; i < frozenGateLeaders.Count; i++)
+            {
+                GridCellView gate = frozenGateLeaders[i];
+                if (gate != null && gate.IsFrozen)
+                    gate.DecrementFreeze();
             }
         }
 

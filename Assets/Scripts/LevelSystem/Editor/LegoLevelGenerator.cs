@@ -71,6 +71,11 @@ namespace LegoPuzzle.Editor
             public int frozenPieceCount = 0; // 0 = авто відповідно до складності або бажана к-сть
             public int maxFreezeCount = 2;   // Максимальний лічильник заморозки (на скільки виходів)
 
+            [Header("Заморожені ворота (Frozen Gates)")]
+            public bool allowFrozenGates = false;
+            public int frozenGateCount = 0;     // скільки груп воріт заморозити
+            public int maxGateFreezeCount = 2;  // макс. лічильник заморозки на групу воріт
+
             [Header("Подвійні блоки (Double Layer)")]
             public bool allowDoubleBlocks = false;
             public int doubleBlockCount = 0; // скільки деталей зробити подвійними
@@ -149,6 +154,9 @@ namespace LegoPuzzle.Editor
                     s.allowFrozenPieces = false;
                     s.frozenPieceCount = 0;
                     s.maxFreezeCount = 0;
+                    s.allowFrozenGates = false;
+                    s.frozenGateCount = 0;
+                    s.maxGateFreezeCount = 0;
                     s.allowDoubleBlocks = false;
                     s.doubleBlockCount = 0;
                     s.allowMovableBarriers = false;
@@ -175,6 +183,9 @@ namespace LegoPuzzle.Editor
                     s.allowFrozenPieces = false;
                     s.frozenPieceCount = 0;
                     s.maxFreezeCount = 0;
+                    s.allowFrozenGates = false;
+                    s.frozenGateCount = 0;
+                    s.maxGateFreezeCount = 0;
                     s.allowDoubleBlocks = false;
                     s.doubleBlockCount = 0;
                     s.useShape1x2 = true;
@@ -200,6 +211,9 @@ namespace LegoPuzzle.Editor
                     s.allowFrozenPieces = true;
                     s.frozenPieceCount = 1;
                     s.maxFreezeCount = 1;
+                    s.allowFrozenGates = false;
+                    s.frozenGateCount = 0;
+                    s.maxGateFreezeCount = 0;
                     s.allowDoubleBlocks = true;
                     s.doubleBlockCount = 1;
                     s.useShape1x2 = true;
@@ -228,6 +242,9 @@ namespace LegoPuzzle.Editor
                     s.allowFrozenPieces = true;
                     s.frozenPieceCount = 1;
                     s.maxFreezeCount = 2;
+                    s.allowFrozenGates = true;
+                    s.frozenGateCount = 1;
+                    s.maxGateFreezeCount = 1;
                     s.allowDoubleBlocks = true;
                     s.doubleBlockCount = 1;
                     s.useShape1x2 = true;
@@ -257,6 +274,9 @@ namespace LegoPuzzle.Editor
                     s.allowFrozenPieces = true;
                     s.frozenPieceCount = 2;
                     s.maxFreezeCount = 2;
+                    s.allowFrozenGates = true;
+                    s.frozenGateCount = 1;
+                    s.maxGateFreezeCount = 2;
                     s.allowDoubleBlocks = true;
                     s.doubleBlockCount = 2;
                     s.useShape1x2 = true;
@@ -324,6 +344,9 @@ namespace LegoPuzzle.Editor
                     s.allowFrozenPieces = true;
                     s.frozenPieceCount = 2;
                     s.maxFreezeCount = 3;
+                    s.allowFrozenGates = true;
+                    s.frozenGateCount = 2;
+                    s.maxGateFreezeCount = 2;
                     s.allowDoubleBlocks = true;
                     s.doubleBlockCount = 2;
                     s.useShape1x1 = false;
@@ -435,16 +458,16 @@ namespace LegoPuzzle.Editor
                 }
 
                 // 2. BFS / A* валідація (СУВОРА ПЕРЕВІРКА НА 100% РОЗВ'ЯЗУВАНІСТЬ)
-                // Якщо увімкнені заморожені блоки, перевіряємо кілька конфігурацій заморозки для цієї розкладки
-                int freezeTries = settings.allowFrozenPieces ? 3 : 1;
+                // Якщо увімкнені заморожені блоки/ворота, перевіряємо кілька конфігурацій заморозки для цієї розкладки
+                int freezeTries = (settings.allowFrozenPieces || settings.allowFrozenGates) ? 3 : 1;
                 bool candidateSolved = false;
 
                 for (int fTry = 0; fTry < freezeTries; fTry++)
                 {
                     if (settings.allowFrozenPieces)
-                    {
                         ApplyFrozenPieces(candidate, settings, rng);
-                    }
+                    if (settings.allowFrozenGates)
+                        ApplyFrozenGates(candidate, settings, rng);
 
                     // Double blocks are applied AFTER a solvable layout is accepted.
                     // Applying them before BFS often made the search fail → fallback without doubles.
@@ -535,6 +558,9 @@ namespace LegoPuzzle.Editor
                     allowFrozenPieces = settings.allowFrozenPieces && (tryCount < 20),
                     frozenPieceCount = Mathf.Clamp(settings.frozenPieceCount, 1, 2),
                     maxFreezeCount = Mathf.Clamp(settings.maxFreezeCount, 1, 2),
+                    allowFrozenGates = settings.allowFrozenGates && (tryCount < 20),
+                    frozenGateCount = Mathf.Clamp(settings.frozenGateCount, 1, 2),
+                    maxGateFreezeCount = Mathf.Clamp(settings.maxGateFreezeCount, 1, 2),
                     allowDoubleBlocks = settings.allowDoubleBlocks,
                     doubleBlockCount = settings.doubleBlockCount,
                     allowMovableBarriers = settings.allowMovableBarriers,
@@ -555,9 +581,9 @@ namespace LegoPuzzle.Editor
                 if (ok && CountImmediateExits(fallback) == 0)
                 {
                     if (fallbackSettings.allowFrozenPieces)
-                    {
                         ApplyFrozenPieces(fallback, fallbackSettings, rng);
-                    }
+                    if (fallbackSettings.allowFrozenGates)
+                        ApplyFrozenGates(fallback, fallbackSettings, rng);
                     var solver = SolveLevelBFS(fallback, 35000, fallbackTargets);
                     if (solver.isSolvable && solver.optimalMoves >= 3)
                     {
@@ -1300,6 +1326,122 @@ namespace LegoPuzzle.Editor
                 piece.innerColorType = inner;
                 assigned++;
             }
+        }
+
+        /// <summary>
+        /// Призначає механіку заморожених воріт (Frozen Gates).
+        /// Заморожує цілі групи суміжних воріт одного кольору/напрямку.
+        /// За можливості лишає щонайменше одну групу розмороженою.
+        /// </summary>
+        private static void ApplyFrozenGates(LevelData level, GenerationSettings settings, System.Random rng)
+        {
+            if (level == null) return;
+
+            ClearAllGateFreeze(level);
+            if (settings == null || !settings.allowFrozenGates) return;
+
+            List<List<Vector2Int>> groups = FindExitGateGroups(level);
+            if (groups.Count == 0) return;
+
+            int maxCanFreeze = groups.Count > 1 ? groups.Count - 1 : 1;
+            int desired = settings.frozenGateCount > 0 ? settings.frozenGateCount : 1;
+            int gatesToFreeze = Mathf.Clamp(desired, 1, maxCanFreeze);
+            int maxFreezeLimit = Mathf.Clamp(settings.maxGateFreezeCount, 1, 5);
+
+            List<int> order = new List<int>(groups.Count);
+            for (int i = 0; i < groups.Count; i++)
+                order.Add(i);
+            ShuffleList(order, rng);
+
+            int assigned = 0;
+            for (int k = 0; k < order.Count && assigned < gatesToFreeze; k++)
+            {
+                List<Vector2Int> group = groups[order[k]];
+                int count = (maxFreezeLimit > 1) ? rng.Next(1, maxFreezeLimit + 1) : 1;
+                for (int c = 0; c < group.Count; c++)
+                {
+                    Vector2Int pos = group[c];
+                    CellData cell = level.GetCell(pos.x, pos.y);
+                    cell.freezeCount = count;
+                    level.SetCell(pos.x, pos.y, cell);
+                }
+                assigned++;
+            }
+        }
+
+        private static void ClearAllGateFreeze(LevelData level)
+        {
+            if (level == null) return;
+            for (int y = 0; y < level.gridHeight; y++)
+            {
+                for (int x = 0; x < level.gridWidth; x++)
+                {
+                    CellData cell = level.GetCell(x, y);
+                    if (cell.cellType != CellType.ExitGate && cell.cellType != CellType.HalfExitGate)
+                        continue;
+                    if (cell.freezeCount == 0) continue;
+                    cell.freezeCount = 0;
+                    level.SetCell(x, y, cell);
+                }
+            }
+        }
+
+        private static List<List<Vector2Int>> FindExitGateGroups(LevelData level)
+        {
+            var groups = new List<List<Vector2Int>>();
+            var visited = new HashSet<Vector2Int>();
+
+            for (int y = 0; y < level.gridHeight; y++)
+            {
+                for (int x = 0; x < level.gridWidth; x++)
+                {
+                    Vector2Int start = new Vector2Int(x, y);
+                    if (visited.Contains(start)) continue;
+
+                    CellData seed = level.GetCell(x, y);
+                    if (seed.cellType != CellType.ExitGate && seed.cellType != CellType.HalfExitGate)
+                        continue;
+
+                    var group = new List<Vector2Int>();
+                    var queue = new Queue<Vector2Int>();
+                    queue.Enqueue(start);
+                    visited.Add(start);
+
+                    while (queue.Count > 0)
+                    {
+                        Vector2Int cur = queue.Dequeue();
+                        group.Add(cur);
+
+                        Vector2Int[] neighbors =
+                        {
+                            cur + Vector2Int.up,
+                            cur + Vector2Int.down,
+                            cur + Vector2Int.left,
+                            cur + Vector2Int.right
+                        };
+
+                        for (int n = 0; n < neighbors.Length; n++)
+                        {
+                            Vector2Int nb = neighbors[n];
+                            if (visited.Contains(nb) || !level.IsInsideGrid(nb.x, nb.y))
+                                continue;
+
+                            CellData other = level.GetCell(nb.x, nb.y);
+                            if (other.cellType != seed.cellType) continue;
+                            if (other.exitDirection != seed.exitDirection) continue;
+                            if (other.gateColorType != seed.gateColorType) continue;
+
+                            visited.Add(nb);
+                            queue.Enqueue(nb);
+                        }
+                    }
+
+                    if (group.Count > 0)
+                        groups.Add(group);
+                }
+            }
+
+            return groups;
         }
 
         /// <summary>
@@ -2047,7 +2189,7 @@ namespace LegoPuzzle.Editor
             return CountImmediateExits(level) == 0;
         }
 
-        private static bool CanPieceExitAnywhereImmediate(LevelData level, LegoPieceData piece, Vector2Int origin, Vector2Int[] origins = null, bool[] exited = null, BlockColorType? colorOverride = null)
+        private static bool CanPieceExitAnywhereImmediate(LevelData level, LegoPieceData piece, Vector2Int origin, Vector2Int[] origins = null, bool[] exited = null, BlockColorType? colorOverride = null, int destroyEvents = 0)
         {
             Vector2Int[] dirs = new Vector2Int[] { Vector2Int.up, Vector2Int.down, Vector2Int.left, Vector2Int.right };
             foreach (var dir in dirs)
@@ -2057,7 +2199,7 @@ namespace LegoPuzzle.Editor
                 if (piece.moveRestriction == MoveRestriction.VerticalOnly && (dir == Vector2Int.left || dir == Vector2Int.right))
                     continue;
 
-                if (CanExitImmediately(level, piece, origin, dir, origins, exited, colorOverride))
+                if (CanExitImmediately(level, piece, origin, dir, origins, exited, colorOverride, destroyEvents))
                     return true;
             }
             return false;
@@ -2081,7 +2223,7 @@ namespace LegoPuzzle.Editor
             return count;
         }
 
-        private static bool CanExitImmediately(LevelData level, LegoPieceData piece, Vector2Int origin, Vector2Int dir, Vector2Int[] origins = null, bool[] exited = null, BlockColorType? colorOverride = null)
+        private static bool CanExitImmediately(LevelData level, LegoPieceData piece, Vector2Int origin, Vector2Int dir, Vector2Int[] origins = null, bool[] exited = null, BlockColorType? colorOverride = null, int destroyEvents = 0)
         {
             if (piece == null || piece.shape == null || piece.isMovableBarrier) return false;
 
@@ -2146,6 +2288,8 @@ namespace LegoPuzzle.Editor
                 if (gateCell.exitDirection != expectedExitDir)
                     return false;
                 if (gateCell.gateColorType != BlockColorType.Universal && gateCell.gateColorType != effectiveColor)
+                    return false;
+                if (gateCell.freezeCount > destroyEvents)
                     return false;
 
                 if (!hasSample)
@@ -2821,7 +2965,7 @@ namespace LegoPuzzle.Editor
                             if (restriction == MoveRestriction.VerticalOnly && (dir == Vector2Int.left || dir == Vector2Int.right))
                                 continue;
 
-                            if (CanExitImmediately(level, pieceData, tempOrigins[i], dir, tempOrigins, tempExited, effectiveColor))
+                            if (CanExitImmediately(level, pieceData, tempOrigins[i], dir, tempOrigins, tempExited, effectiveColor, destroyEvents))
                             {
                                 Array.Copy(tempOrigins, nextOrigins, n);
                                 Array.Copy(tempExited, nextExited, n);
@@ -2879,7 +3023,7 @@ namespace LegoPuzzle.Editor
                             Array.Copy(tempPeeled, nextPeeled, n);
                             nextOrigins[i] = newOrigin;
 
-                            if (!isBarrier && CanPieceExitAnywhereImmediate(level, pieceData, newOrigin, tempOrigins, tempExited, effectiveColor))
+                            if (!isBarrier && CanPieceExitAnywhereImmediate(level, pieceData, newOrigin, tempOrigins, tempExited, effectiveColor, destroyEvents))
                             {
                                 string desc;
                                 if (needsPeel)
@@ -3010,6 +3154,7 @@ namespace LegoPuzzle.Editor
 
             // Post-hoc механіки не ускладнюють базовий BFS — вимагаємо жорсткішу базу.
             if (settings.allowFrozenPieces) ease += 1;
+            if (settings.allowFrozenGates) ease += 1;
             if (settings.allowDoubleBlocks) ease += 1;
             if (settings.allowMovableBarriers) ease += 1;
             if (settings.allowObstacles && settings.obstacleCount > 0) ease += 0; // obstacles usually harden

@@ -55,6 +55,11 @@ namespace LegoPuzzle.Data
         [Tooltip("0 = По центру, 1 = Ліва/Верхня половина, 2 = Права/Нижня половина")]
         public int gateAlignment;
 
+        [Tooltip("Лічильник заморозки воріт (0 = розморожені). Зменшується при знищенні/виході блоків, як у заморожених деталей.")]
+        public int freezeCount;
+
+        public bool IsFrozen => freezeCount > 0;
+
         public CellData(Vector2Int position, CellType cellType)
         {
             this.position = position;
@@ -63,6 +68,7 @@ namespace LegoPuzzle.Data
             this.gateColorType = BlockColorType.Universal;
             this.customGateColor = Color.white;
             this.gateAlignment = 1;
+            this.freezeCount = 0;
         }
 
         public Color GetEffectiveColor()

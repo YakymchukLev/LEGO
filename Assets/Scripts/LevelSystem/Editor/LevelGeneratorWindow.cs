@@ -46,6 +46,7 @@ namespace LegoPuzzle.Editor
         private bool batchAllowSliders = true;
         private bool batchAllowObstacles = true;
         private bool batchAllowFrozenPieces = true;
+        private bool batchAllowFrozenGates = true;
         private bool batchAllowMovableBarriers = false;
         private bool batchAllowUniversalGates = false;
         private bool batchRandomizeArchetypes = true;
@@ -372,6 +373,34 @@ namespace LegoPuzzle.Editor
                 EditorGUILayout.EndHorizontal();
 
                 EditorGUILayout.Space(4);
+                EditorGUILayout.LabelField("Заморожені ворота (Frozen Gates):", EditorStyles.boldLabel);
+                EditorGUILayout.BeginHorizontal();
+                EditorGUI.BeginChangeCheck();
+                currentSettings.allowFrozenGates = EditorGUILayout.ToggleLeft("Дозволити ❄ ворота", currentSettings.allowFrozenGates, GUILayout.Width(140));
+                if (currentSettings.allowFrozenGates)
+                {
+                    if (currentSettings.frozenGateCount < 1)
+                        currentSettings.frozenGateCount = 1;
+                    if (currentSettings.maxGateFreezeCount < 1)
+                        currentSettings.maxGateFreezeCount = 1;
+                    EditorGUILayout.LabelField("Груп:", GUILayout.Width(45));
+                    currentSettings.frozenGateCount = EditorGUILayout.IntSlider(currentSettings.frozenGateCount, 1, 4, GUILayout.Width(110));
+                    EditorGUILayout.LabelField("Макс лічильник:", GUILayout.Width(100));
+                    currentSettings.maxGateFreezeCount = EditorGUILayout.IntSlider(currentSettings.maxGateFreezeCount, 1, 5, GUILayout.Width(110));
+                }
+                if (EditorGUI.EndChangeCheck())
+                {
+                    currentSettings.difficultyTier = LegoLevelGenerator.DifficultyTier.Custom;
+                }
+                EditorGUILayout.EndHorizontal();
+                if (currentSettings.allowFrozenGates)
+                {
+                    EditorGUILayout.HelpBox(
+                        "Заморожені ворота блокують вихід блоків. Лічильник зменшується при виході/знищенні інших блоків (як ❄ на деталях). Генератор заморожує цілі групи воріт одного кольору.",
+                        MessageType.Info);
+                }
+
+                EditorGUILayout.Space(4);
                 EditorGUILayout.LabelField("Подвійні блоки (Double Layer):", EditorStyles.boldLabel);
                 EditorGUILayout.BeginHorizontal();
                 EditorGUI.BeginChangeCheck();
@@ -591,6 +620,7 @@ namespace LegoPuzzle.Editor
             EditorGUILayout.LabelField($"🏛 Архетип: {currentSettings.archetype}");
             int pieceCount = currentResult.levelData.pieces != null ? currentResult.levelData.pieces.Count : 0;
             int frozenCount = 0;
+            int frozenGateCells = 0;
             int barrierCount = 0;
             int doubleCount = 0;
             if (currentResult.levelData.pieces != null)
@@ -604,11 +634,31 @@ namespace LegoPuzzle.Editor
                 }
             }
 
+            var level = currentResult.levelData;
+            if (level != null)
+            {
+                for (int y = 0; y < level.gridHeight; y++)
+                {
+                    for (int x = 0; x < level.gridWidth; x++)
+                    {
+                        CellData cell = level.GetCell(x, y);
+                        if ((cell.cellType == CellType.ExitGate || cell.cellType == CellType.HalfExitGate) && cell.freezeCount > 0)
+                            frozenGateCells++;
+                    }
+                }
+            }
+
             EditorGUILayout.LabelField($"🧩 Деталей: {pieceCount}");
             if (frozenCount > 0)
             {
                 GUI.color = new Color(0.4f, 0.85f, 1f);
                 EditorGUILayout.LabelField($"❄ {frozenCount}", EditorStyles.boldLabel, GUILayout.Width(50));
+                GUI.color = Color.white;
+            }
+            if (frozenGateCells > 0)
+            {
+                GUI.color = new Color(0.45f, 0.8f, 1f);
+                EditorGUILayout.LabelField($"❄🚪 {frozenGateCells}", EditorStyles.boldLabel, GUILayout.Width(70));
                 GUI.color = Color.white;
             }
             if (doubleCount > 0)
@@ -862,6 +912,7 @@ namespace LegoPuzzle.Editor
                 batchAllowSliders = EditorGUILayout.ToggleLeft("Дозволити слайдери (↔, ↕)", batchAllowSliders);
                 batchAllowObstacles = EditorGUILayout.ToggleLeft("Дозволити перешкоди (Дерев'яні блоки)", batchAllowObstacles);
                 batchAllowFrozenPieces = EditorGUILayout.ToggleLeft("Дозволити заморожені блоки (❄ Заморозка)", batchAllowFrozenPieces);
+                batchAllowFrozenGates = EditorGUILayout.ToggleLeft("Дозволити заморожені ворота (❄🚪)", batchAllowFrozenGates);
                 batchAllowMovableBarriers = EditorGUILayout.ToggleLeft("Дозволити рухомі бар'єри (🧱)", batchAllowMovableBarriers);
                 batchAllowUniversalGates = EditorGUILayout.ToggleLeft("Дозволити універсальні ворота (★) [За замовчуванням ВИМКНЕНО]", batchAllowUniversalGates);
                 batchRandomizeArchetypes = EditorGUILayout.ToggleLeft("Урізноманітнювати архетипи полів (Острови, перешийки, лабіринти)", batchRandomizeArchetypes);
@@ -952,6 +1003,11 @@ namespace LegoPuzzle.Editor
                     {
                         s.allowFrozenPieces = false;
                         s.frozenPieceCount = 0;
+                    }
+                    if (!batchAllowFrozenGates)
+                    {
+                        s.allowFrozenGates = false;
+                        s.frozenGateCount = 0;
                     }
                     if (!batchAllowMovableBarriers)
                     {
@@ -1111,6 +1167,7 @@ namespace LegoPuzzle.Editor
             EditorGUILayout.LabelField($"• Слайдери (Sliders): Horizontal={curve.allowHorizontalOnly}, Vertical={curve.allowVerticalOnly}");
             EditorGUILayout.LabelField($"• Перешкоди (Obstacles): {curve.obstacleCount}");
             EditorGUILayout.LabelField($"• Заморожені блоки (❄): {(curve.allowFrozenPieces ? $"{curve.frozenPieceCount} шт (лічильник до {curve.maxFreezeCount})" : "Вимкнено")}");
+            EditorGUILayout.LabelField($"• Заморожені ворота (❄🚪): {(curve.allowFrozenGates ? $"{curve.frozenGateCount} груп (лічильник до {curve.maxGateFreezeCount})" : "Вимкнено")}");
             EditorGUILayout.LabelField($"• Подвійні блоки (▣): {(curve.allowDoubleBlocks ? $"{curve.doubleBlockCount} шт" : "Вимкнено")}");
             EditorGUILayout.LabelField($"• Рухомі бар'єри (🧱): {(curve.allowMovableBarriers ? $"{curve.movableBarrierCount} шт" : "Вимкнено")}");
             EditorGUILayout.LabelField($"• Ворота: Строго кольорові");

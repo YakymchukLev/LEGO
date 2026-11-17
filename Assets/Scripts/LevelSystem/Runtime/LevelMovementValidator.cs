@@ -386,7 +386,9 @@ namespace LegoPuzzle.Runtime
 
             if (loader.SpawnedCells.TryGetValue(pos, out GridCellView cellView))
             {
-                if ((cellView.CellType == CellType.ExitGate || cellView.CellType == CellType.HalfExitGate) && cellView.ExitDirection == expectedDir)
+                if ((cellView.CellType == CellType.ExitGate || cellView.CellType == CellType.HalfExitGate)
+                    && cellView.ExitDirection == expectedDir
+                    && !cellView.IsFrozen)
                 {
                     if (cellView.GateColorType == BlockColorType.Universal)
                         return true;

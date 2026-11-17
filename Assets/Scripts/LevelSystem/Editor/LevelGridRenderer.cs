@@ -264,12 +264,23 @@ namespace LegoPuzzle.Editor
                 case CellType.ExitGate:
                 {
                     Color gateColor = cell.GetEffectiveColor(false);
+                    bool frozenGate = cell.freezeCount > 0;
 
                     // Рамка воріт
                     Color gateBorder = Color.Lerp(gateColor, Color.black, 0.35f);
                     gateBorder.a = 1f;
                     EditorGUI.DrawRect(outerRect, gateBorder);
                     EditorGUI.DrawRect(innerRect, gateColor);
+
+                    if (frozenGate)
+                    {
+                        Color iceCyan = new Color(0.35f, 0.85f, 1f, 0.95f);
+                        EditorGUI.DrawRect(new Rect(innerRect.x, innerRect.y, innerRect.width, 3f), iceCyan);
+                        EditorGUI.DrawRect(new Rect(innerRect.x, innerRect.y, 3f, innerRect.height), iceCyan);
+                        EditorGUI.DrawRect(new Rect(innerRect.x, innerRect.yMax - 3f, innerRect.width, 3f), iceCyan);
+                        EditorGUI.DrawRect(new Rect(innerRect.xMax - 3f, innerRect.y, 3f, innerRect.height), iceCyan);
+                        EditorGUI.DrawRect(innerRect, new Color(0.55f, 0.85f, 1f, 0.28f));
+                    }
 
                     // Біла смуга на зовнішньому краї виходу
                     float barThick = 3.5f;
@@ -303,10 +314,14 @@ namespace LegoPuzzle.Editor
                         arrow = "★" + arrow;
                     }
 
-                    Color textCol = GetContrastingTextColor(gateColor);
-                    GUIStyle style = GetStyle(textCol, Mathf.RoundToInt(size * 0.44f));
+                    if (frozenGate)
+                        arrow = $"❄{cell.freezeCount}";
 
-                    string tooltip = $"🚪 Ворота: {cell.exitDirection}\nКолір: {cell.gateColorType}\nКлітинка: ({x}, {y})";
+                    Color textCol = frozenGate ? Color.white : GetContrastingTextColor(gateColor);
+                    GUIStyle style = GetStyle(textCol, Mathf.RoundToInt(size * (frozenGate ? 0.34f : 0.44f)));
+
+                    string freezeInfo = frozenGate ? $"\n❄ Лічильник заморозки: {cell.freezeCount}" : "";
+                    string tooltip = $"🚪 Ворота: {cell.exitDirection}\nКолір: {cell.gateColorType}{freezeInfo}\nКлітинка: ({x}, {y})";
                     GUI.Label(innerRect, new GUIContent(arrow, tooltip), style);
                     break;
                 }
@@ -316,6 +331,7 @@ namespace LegoPuzzle.Editor
                     // Фон — вільне поле
                     EditorGUI.DrawRect(innerRect, WalkableBaseColor);
                     Color gateColor = cell.GetEffectiveColor(false);
+                    bool frozenGate = cell.freezeCount > 0;
 
                     // 0 => Top (▀), 1 => Bottom (▄), 2 => Left (▌), 3 => Right (▐)
                     Rect gateHalf = cell.gateAlignment switch
@@ -327,6 +343,16 @@ namespace LegoPuzzle.Editor
                         _ => innerRect
                     };
                     EditorGUI.DrawRect(gateHalf, gateColor);
+
+                    if (frozenGate)
+                    {
+                        Color iceCyan = new Color(0.35f, 0.85f, 1f, 0.95f);
+                        EditorGUI.DrawRect(new Rect(gateHalf.x, gateHalf.y, gateHalf.width, 2.5f), iceCyan);
+                        EditorGUI.DrawRect(new Rect(gateHalf.x, gateHalf.y, 2.5f, gateHalf.height), iceCyan);
+                        EditorGUI.DrawRect(new Rect(gateHalf.x, gateHalf.yMax - 2.5f, gateHalf.width, 2.5f), iceCyan);
+                        EditorGUI.DrawRect(new Rect(gateHalf.xMax - 2.5f, gateHalf.y, 2.5f, gateHalf.height), iceCyan);
+                        EditorGUI.DrawRect(gateHalf, new Color(0.55f, 0.85f, 1f, 0.28f));
+                    }
 
                     string arrow = cell.exitDirection switch
                     {
@@ -342,10 +368,14 @@ namespace LegoPuzzle.Editor
                         arrow = "★" + arrow;
                     }
 
-                    Color textCol = GetContrastingTextColor(gateColor);
-                    GUIStyle style = GetStyle(textCol, Mathf.RoundToInt(size * 0.36f));
+                    if (frozenGate)
+                        arrow = $"❄{cell.freezeCount}";
 
-                    string tooltip = $"🚪 Половинні ворота: {cell.exitDirection} (Align: {cell.gateAlignment})\nКолір: {cell.gateColorType}\nКлітинка: ({x}, {y})";
+                    Color textCol = frozenGate ? Color.white : GetContrastingTextColor(gateColor);
+                    GUIStyle style = GetStyle(textCol, Mathf.RoundToInt(size * (frozenGate ? 0.30f : 0.36f)));
+
+                    string freezeInfo = frozenGate ? $"\n❄ Лічильник заморозки: {cell.freezeCount}" : "";
+                    string tooltip = $"🚪 Половинні ворота: {cell.exitDirection} (Align: {cell.gateAlignment})\nКолір: {cell.gateColorType}{freezeInfo}\nКлітинка: ({x}, {y})";
                     GUI.Label(gateHalf, new GUIContent(arrow, tooltip), style);
                     break;
                 }

@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using TMPro;
 using LegoPuzzle.Data;
 
 namespace LegoPuzzle.Runtime
@@ -12,19 +13,48 @@ namespace LegoPuzzle.Runtime
         public ExitDirection ExitDirection { get; private set; }
         public BlockColorType GateColorType { get; private set; }
         public Color GateColor { get; private set; }
+        public int CurrentFreezeCount { get; private set; }
+        public int InitialFreezeCount { get; private set; }
+        public bool IsFrozen => CurrentFreezeCount > 0;
+        public bool IsExitGate => CellType == CellType.ExitGate || CellType == CellType.HalfExitGate;
+        public int GateAlignment { get; private set; }
+        public GridCellView GateGroupLeader { get; private set; }
+        public bool IsGateGroupLeader => IsExitGate && (GateGroupLeader == null || GateGroupLeader == this);
 
         [Header("Компоненти відображення")]
         [SerializeField] private MeshRenderer mainRenderer;
         [SerializeField] private SpriteRenderer arrowRenderer;
         [SerializeField] private Transform arrowTransform;
 
-        public void Initialize(CellData data, BlockPalette palette, float cellSize = 1f)
+        private LevelLoader levelLoader;
+        private GameObject iceShellObj;
+        private MeshFilter iceShellMeshFilter;
+        private MeshRenderer iceShellMeshRenderer;
+        private MaterialPropertyBlock iceMpb;
+        private GameObject freezeBadgeObj;
+        private SpriteRenderer freezeBadgeBgRenderer;
+        private TextMeshPro freezeBadgeText;
+        private Coroutine badgePulseCoroutine;
+        private Coroutine crackPulseCoroutine;
+        private Coroutine unfreezeCoroutine;
+        private List<GridCellView> gateGroupMembers;
+        private int lastGateReactionFrame = -1;
+        private bool arrowDetachedToBoard;
+
+        public void Initialize(CellData data, BlockPalette palette, float cellSize = 1f, LevelLoader loader = null)
         {
             GridPosition = data.position;
             CellType = data.cellType;
             ExitDirection = data.exitDirection;
             GateColorType = data.gateColorType;
+            GateAlignment = data.gateAlignment;
             GateColor = data.GetEffectiveColor();
+            InitialFreezeCount = Mathf.Max(0, data.freezeCount);
+            CurrentFreezeCount = InitialFreezeCount;
+            levelLoader = loader;
+            GateGroupLeader = null;
+            gateGroupMembers = null;
+            arrowDetachedToBoard = false;
 
             if (mainRenderer == null)
             {
@@ -103,11 +133,247 @@ namespace LegoPuzzle.Runtime
                 case CellType.HalfExitGate:
                     gameObject.SetActive(true);
                     SetupExitGate(data, palette, cellSize);
+                    // Лід / бейдж / центральна стрілка — після FinalizeGateGroups (коли відомі сусіди).
                     break;
             }
 
             baseGateLocalScale = transform.localScale;
             cachedCellSize = cellSize;
+        }
+
+        /// <summary>
+        /// Групує суміжні ворота одного кольору/напрямку: 1 стрілка, 1 ❄-бейдж, 1 лід на всю ширину.
+        /// </summary>
+        public static void FinalizeGateGroups(IReadOnlyDictionary<Vector2Int, GridCellView> cells, float cellSize)
+        {
+            if (cells == null || cells.Count == 0) return;
+
+            var visited = new HashSet<GridCellView>();
+            foreach (var kvp in cells)
+            {
+                GridCellView seed = kvp.Value;
+                if (seed == null || !seed.IsExitGate || visited.Contains(seed))
+                    continue;
+
+                List<GridCellView> group = CollectGateGroup(seed, cells);
+                if (group.Count == 0) continue;
+
+                for (int i = 0; i < group.Count; i++)
+                    visited.Add(group[i]);
+
+                bool alongX = seed.ExitDirection == ExitDirection.Up || seed.ExitDirection == ExitDirection.Down;
+                group.Sort((a, b) => alongX
+                    ? a.GridPosition.x.CompareTo(b.GridPosition.x)
+                    : a.GridPosition.y.CompareTo(b.GridPosition.y));
+
+                int leaderIdx = (group.Count - 1) / 2;
+                GridCellView leader = group[leaderIdx];
+
+                int maxFreeze = 0;
+                for (int i = 0; i < group.Count; i++)
+                    maxFreeze = Mathf.Max(maxFreeze, group[i].CurrentFreezeCount);
+
+                for (int i = 0; i < group.Count; i++)
+                {
+                    GridCellView member = group[i];
+                    member.GateGroupLeader = leader;
+                    member.gateGroupMembers = group;
+                    member.InitialFreezeCount = maxFreeze;
+                    member.CurrentFreezeCount = maxFreeze;
+                    member.cachedCellSize = cellSize > 0.05f ? cellSize : member.cachedCellSize;
+                }
+
+                leader.ApplyGateGroupVisuals();
+            }
+        }
+
+        private static List<GridCellView> CollectGateGroup(
+            GridCellView seed,
+            IReadOnlyDictionary<Vector2Int, GridCellView> cells)
+        {
+            var group = new List<GridCellView>();
+            var queue = new Queue<GridCellView>();
+            var seen = new HashSet<GridCellView>();
+            queue.Enqueue(seed);
+            seen.Add(seed);
+
+            bool alongX = seed.ExitDirection == ExitDirection.Up || seed.ExitDirection == ExitDirection.Down;
+
+            while (queue.Count > 0)
+            {
+                GridCellView cur = queue.Dequeue();
+                group.Add(cur);
+
+                Vector2Int[] neighbors = alongX
+                    ? new[] { cur.GridPosition + Vector2Int.left, cur.GridPosition + Vector2Int.right }
+                    : new[] { cur.GridPosition + Vector2Int.up, cur.GridPosition + Vector2Int.down };
+
+                for (int i = 0; i < neighbors.Length; i++)
+                {
+                    if (!cells.TryGetValue(neighbors[i], out GridCellView other) || other == null)
+                        continue;
+                    if (seen.Contains(other) || !IsSameGateGroup(seed, other))
+                        continue;
+                    seen.Add(other);
+                    queue.Enqueue(other);
+                }
+            }
+
+            return group;
+        }
+
+        private static bool IsSameGateGroup(GridCellView a, GridCellView b)
+        {
+            if (a == null || b == null || !a.IsExitGate || !b.IsExitGate) return false;
+            return a.CellType == b.CellType
+                   && a.ExitDirection == b.ExitDirection
+                   && a.GateColorType == b.GateColorType
+                   && a.GateAlignment == b.GateAlignment;
+        }
+
+        private void ApplyGateGroupVisuals()
+        {
+            if (!IsGateGroupLeader || gateGroupMembers == null || gateGroupMembers.Count == 0)
+                return;
+
+            for (int i = 0; i < gateGroupMembers.Count; i++)
+            {
+                GridCellView member = gateGroupMembers[i];
+                if (member == null) continue;
+
+                if (member == this)
+                {
+                    member.ShowCenteredGateArrow();
+                }
+                else
+                {
+                    member.HideGateArrow();
+                    member.ClearGateIceVisuals();
+                }
+            }
+
+            SetupGateIceVisuals();
+        }
+
+        private void HideGateArrow()
+        {
+            if (arrowRenderer != null)
+                arrowRenderer.gameObject.SetActive(false);
+        }
+
+        private void ShowCenteredGateArrow()
+        {
+            if (arrowRenderer == null || arrowTransform == null) return;
+
+            arrowRenderer.gameObject.SetActive(true);
+
+            float cSize = cachedCellSize > 0.05f ? cachedCellSize : 1f;
+            Vector3 groupCenter = GetGateGroupWorldCenter();
+            float topY = GetGateGroupTopY();
+
+            Transform boardParent = transform.parent;
+            if (boardParent != null)
+            {
+                arrowTransform.SetParent(boardParent, true);
+                arrowDetachedToBoard = true;
+            }
+
+            float angle = ExitDirection switch
+            {
+                ExitDirection.Up => 0f,
+                ExitDirection.Right => -90f,
+                ExitDirection.Down => 180f,
+                ExitDirection.Left => 90f,
+                _ => 0f
+            };
+
+            // Світова орієнтація стрілки (як раніше: лежачи на площині + yaw напрямку).
+            arrowTransform.rotation = Quaternion.Euler(90f, 0f, angle);
+            arrowTransform.position = new Vector3(groupCenter.x, topY, groupCenter.z);
+
+            float targetSize = (CellType == CellType.HalfExitGate) ? (cSize * 0.30f) : (cSize * 0.50f);
+            ApplyUniformWorldScale(arrowTransform, targetSize, targetSize, 1f);
+            baseArrowLocalScale = arrowTransform.localScale;
+            baseArrowLocalPos = arrowTransform.localPosition;
+            pulseOffset = (GridPosition.x * 0.7f + GridPosition.y * 1.3f);
+        }
+
+        private Vector3 GetGateGroupWorldCenter()
+        {
+            List<GridCellView> members = gateGroupMembers;
+            if (members == null || members.Count == 0)
+                return mainRenderer != null ? mainRenderer.bounds.center : transform.position;
+
+            Bounds combined = default;
+            bool has = false;
+            for (int i = 0; i < members.Count; i++)
+            {
+                GridCellView m = members[i];
+                if (m == null || m.mainRenderer == null) continue;
+                if (!has)
+                {
+                    combined = m.mainRenderer.bounds;
+                    has = true;
+                }
+                else
+                {
+                    combined.Encapsulate(m.mainRenderer.bounds);
+                }
+            }
+
+            return has ? combined.center : transform.position;
+        }
+
+        private float GetGateGroupTopY()
+        {
+            List<GridCellView> members = gateGroupMembers;
+            float top = transform.position.y + 0.05f;
+            if (members == null) return top;
+
+            for (int i = 0; i < members.Count; i++)
+            {
+                GridCellView m = members[i];
+                if (m == null || m.mainRenderer == null) continue;
+                top = Mathf.Max(top, m.mainRenderer.bounds.max.y + 0.02f);
+            }
+            return top;
+        }
+
+        private Bounds GetGateGroupWorldBounds()
+        {
+            List<GridCellView> members = gateGroupMembers;
+            if (members == null || members.Count == 0)
+            {
+                if (mainRenderer != null) return mainRenderer.bounds;
+                float c = cachedCellSize > 0.05f ? cachedCellSize : 1f;
+                return new Bounds(transform.position, new Vector3(c, c * 0.3f, c));
+            }
+
+            Bounds combined = default;
+            bool has = false;
+            for (int i = 0; i < members.Count; i++)
+            {
+                GridCellView m = members[i];
+                if (m == null || m.mainRenderer == null) continue;
+                if (!has)
+                {
+                    combined = m.mainRenderer.bounds;
+                    has = true;
+                }
+                else combined.Encapsulate(m.mainRenderer.bounds);
+            }
+
+            if (!has)
+            {
+                float c = cachedCellSize > 0.05f ? cachedCellSize : 1f;
+                return new Bounds(transform.position, new Vector3(c, c * 0.3f, c));
+            }
+            return combined;
+        }
+
+        public void BindLevelLoader(LevelLoader loader)
+        {
+            levelLoader = loader;
         }
 
         /// <summary>
@@ -334,14 +600,17 @@ namespace LegoPuzzle.Runtime
 
         private void Update()
         {
-            if (arrowTransform != null && arrowRenderer != null && arrowRenderer.gameObject.activeSelf &&
-                (CellType == CellType.ExitGate || CellType == CellType.HalfExitGate))
-            {
-                float t = (Time.time + pulseOffset) * 2.8f;
-                float scalePulse = 1f + Mathf.Sin(t) * 0.035f;
-                arrowTransform.localScale = baseArrowLocalScale * scalePulse;
+            if (!IsGateGroupLeader) return;
+            if (arrowTransform == null || arrowRenderer == null || !arrowRenderer.gameObject.activeSelf)
+                return;
+            if (CellType != CellType.ExitGate && CellType != CellType.HalfExitGate)
+                return;
+
+            float t = (Time.time + pulseOffset) * 2.8f;
+            float scalePulse = 1f + Mathf.Sin(t) * 0.035f;
+            arrowTransform.localScale = baseArrowLocalScale * scalePulse;
+            if (!arrowDetachedToBoard)
                 arrowTransform.localPosition = baseArrowLocalPos;
-            }
         }
 
         /// <summary>
@@ -469,14 +738,482 @@ namespace LegoPuzzle.Runtime
         }
 
         /// <summary>
-        /// Запускає соковиту комбіновану реакцію воріт при проходженні блоку:
-        /// желейне розтягування (Squash & Stretch), неоновий спалах та розширення кільця ударної хвилі (Shockwave).
+        /// Реакція виходу: програється на всіх сегментах групи воріт одного кольору.
         /// </summary>
         public void PlayGateExitReaction(ExitDirection dir, Color pieceColor)
         {
-            if (!gameObject.activeInHierarchy) return;
+            GridCellView leader = GateGroupLeader != null ? GateGroupLeader : this;
+            if (leader != this)
+            {
+                leader.PlayGateExitReaction(dir, pieceColor);
+                return;
+            }
+
+            if (!gameObject.activeInHierarchy || IsFrozen) return;
+            if (lastGateReactionFrame == Time.frameCount) return;
+            lastGateReactionFrame = Time.frameCount;
+
+            List<GridCellView> members = gateGroupMembers;
+            if (members == null || members.Count == 0)
+            {
+                PlayLocalGateExitReaction(dir, pieceColor);
+                return;
+            }
+
+            for (int i = 0; i < members.Count; i++)
+            {
+                GridCellView member = members[i];
+                if (member != null && member.gameObject.activeInHierarchy)
+                    member.PlayLocalGateExitReaction(dir, pieceColor);
+            }
+        }
+
+        private void PlayLocalGateExitReaction(ExitDirection dir, Color pieceColor)
+        {
+            if (!gameObject.activeInHierarchy || IsFrozen) return;
             if (reactionCoroutine != null) StopCoroutine(reactionCoroutine);
             reactionCoroutine = StartCoroutine(GateExitReactionRoutine(dir, pieceColor));
+        }
+
+        /// <summary>
+        /// Зменшує лічильник заморозки воріт при виході/знищенні блоку (як у заморожених деталей).
+        /// Викликається на лідері групи; синхронізує всі сегменти.
+        /// </summary>
+        public void DecrementFreeze()
+        {
+            if (!IsExitGate || !IsFrozen) return;
+
+            GridCellView leader = GateGroupLeader != null ? GateGroupLeader : this;
+            if (leader != this)
+            {
+                leader.DecrementFreeze();
+                return;
+            }
+
+            CurrentFreezeCount--;
+            SyncGateGroupFreezeCount(CurrentFreezeCount);
+
+            if (CurrentFreezeCount > 0)
+            {
+                if (freezeBadgeText != null)
+                    freezeBadgeText.text = CurrentFreezeCount.ToString();
+
+                if (badgePulseCoroutine != null) StopCoroutine(badgePulseCoroutine);
+                badgePulseCoroutine = StartCoroutine(GateBadgePulseRoutine());
+
+                SpawnGateIceChipDebris();
+                TriggerGateCrackPulse(GetGateTargetCrackIntensity());
+
+                if (levelLoader != null)
+                    levelLoader.PlayBlockCrackSound();
+                if (GameSettingsManager.HasInstance)
+                    GameSettingsManager.Instance.TriggerHaptic();
+            }
+            else
+            {
+                SyncGateGroupFreezeCount(0);
+                if (unfreezeCoroutine != null) StopCoroutine(unfreezeCoroutine);
+                unfreezeCoroutine = StartCoroutine(GateUnfreezeRoutine());
+            }
+        }
+
+        private void SyncGateGroupFreezeCount(int count)
+        {
+            CurrentFreezeCount = count;
+            if (gateGroupMembers == null) return;
+            for (int i = 0; i < gateGroupMembers.Count; i++)
+            {
+                GridCellView m = gateGroupMembers[i];
+                if (m != null)
+                    m.CurrentFreezeCount = count;
+            }
+        }
+
+        private void SetupGateIceVisuals()
+        {
+            if (!IsExitGate || !IsGateGroupLeader)
+            {
+                ClearGateIceVisuals();
+                return;
+            }
+
+            if (!IsFrozen)
+            {
+                ClearGateIceVisuals();
+                return;
+            }
+
+            SetupGateIceShell();
+            SetupGateFreezeBadge();
+        }
+
+        private void ClearGateIceVisuals()
+        {
+            if (iceShellObj != null) iceShellObj.SetActive(false);
+            if (freezeBadgeObj != null) freezeBadgeObj.SetActive(false);
+        }
+
+        private void OnDestroy()
+        {
+            if (iceShellObj != null)
+            {
+                Destroy(iceShellObj);
+                iceShellObj = null;
+            }
+            if (freezeBadgeObj != null)
+            {
+                Destroy(freezeBadgeObj);
+                freezeBadgeObj = null;
+            }
+        }
+
+        private void SetupGateIceShell()
+        {
+            float cSize = cachedCellSize > 0.05f ? cachedCellSize : 1f;
+
+            if (iceShellObj == null)
+            {
+                iceShellObj = new GameObject("GateIceShell");
+                Transform boardParent = transform.parent;
+                iceShellObj.transform.SetParent(boardParent != null ? boardParent : null, false);
+                iceShellMeshFilter = iceShellObj.AddComponent<MeshFilter>();
+                iceShellMeshRenderer = iceShellObj.AddComponent<MeshRenderer>();
+            }
+            else if (iceShellMeshFilter == null)
+            {
+                iceShellMeshFilter = iceShellObj.GetComponent<MeshFilter>();
+                if (iceShellMeshFilter == null)
+                    iceShellMeshFilter = iceShellObj.AddComponent<MeshFilter>();
+            }
+
+            iceShellObj.SetActive(true);
+
+            Bounds groupBounds = GetGateGroupWorldBounds();
+            bool alongX = ExitDirection == ExitDirection.Up || ExitDirection == ExitDirection.Down;
+
+            List<GridCellView> members = gateGroupMembers;
+            int span = members != null ? Mathf.Max(1, members.Count) : 1;
+
+            // Суцільний лід від крайнього лівого до крайнього правого сегмента (як на мульти-клітинному блоці).
+            var offsets = new List<Vector2Int>(span);
+            for (int i = 0; i < span; i++)
+            {
+                offsets.Add(alongX ? new Vector2Int(i, 0) : new Vector2Int(0, i));
+            }
+
+            float iceHeight = Mathf.Max(groupBounds.size.y * 1.25f, cSize * 0.28f);
+            Vector3 visualCenter = alongX
+                ? new Vector3((span - 1) * 0.5f * cSize, 0f, 0f)
+                : new Vector3(0f, 0f, (span - 1) * 0.5f * cSize);
+
+            Mesh iceMesh = LegoPieceView.GenerateIceShellMesh(offsets, cSize, visualCenter, iceHeight);
+            iceShellMeshFilter.sharedMesh = iceMesh;
+
+            Vector3 iceWorldPos = new Vector3(groupBounds.center.x, groupBounds.min.y + 0.01f * cSize, groupBounds.center.z);
+            iceShellObj.transform.SetPositionAndRotation(iceWorldPos, Quaternion.identity);
+
+            // Підігнати глибину/ширину під реальний footprint half-gate (mesh базується на full cellSize).
+            float meshSpanX = span * cSize;
+            float meshSpanZ = cSize;
+            if (!alongX)
+            {
+                meshSpanX = cSize;
+                meshSpanZ = span * cSize;
+            }
+
+            float scaleX = Mathf.Max(groupBounds.size.x * 1.06f, cSize * 0.35f) / Mathf.Max(0.001f, meshSpanX);
+            float scaleZ = Mathf.Max(groupBounds.size.z * 1.06f, cSize * 0.35f) / Mathf.Max(0.001f, meshSpanZ);
+            // Тільки ворота: нижчий лід (блоки/перешкоди мають свої значення в LegoPieceView).
+            const float gateIceScaleY = 0.8f;
+            iceShellObj.transform.localScale = new Vector3(scaleX, gateIceScaleY, scaleZ);
+
+            if (iceShellMeshRenderer != null)
+            {
+                iceShellMeshRenderer.sharedMaterial = LegoPieceView.GetOrCreateIceMaterial();
+                iceShellMeshRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                iceShellMeshRenderer.receiveShadows = false;
+
+                if (iceMpb == null) iceMpb = new MaterialPropertyBlock();
+                iceShellMeshRenderer.GetPropertyBlock(iceMpb);
+                iceMpb.SetFloat("_CrackIntensity", GetGateTargetCrackIntensity());
+                iceShellMeshRenderer.SetPropertyBlock(iceMpb);
+            }
+        }
+
+        private void SetupGateFreezeBadge()
+        {
+            float cSize = cachedCellSize > 0.05f ? cachedCellSize : 1f;
+            Transform boardParent = transform.parent;
+
+            if (freezeBadgeObj == null)
+            {
+                freezeBadgeObj = new GameObject("GateFrozenBadge");
+                freezeBadgeObj.transform.SetParent(boardParent != null ? boardParent : null, false);
+            }
+            else if (boardParent != null && freezeBadgeObj.transform.parent != boardParent)
+            {
+                freezeBadgeObj.transform.SetParent(boardParent, true);
+            }
+
+            freezeBadgeObj.SetActive(true);
+
+            if (freezeBadgeBgRenderer == null)
+            {
+                freezeBadgeBgRenderer = freezeBadgeObj.GetComponent<SpriteRenderer>();
+                if (freezeBadgeBgRenderer == null)
+                    freezeBadgeBgRenderer = freezeBadgeObj.AddComponent<SpriteRenderer>();
+            }
+
+            freezeBadgeBgRenderer.sprite = LegoPieceView.GetOrCreateProceduralIceBadgeSprite();
+            freezeBadgeBgRenderer.color = Color.white;
+            freezeBadgeBgRenderer.sortingOrder = 40;
+            if (freezeBadgeBgRenderer.sharedMaterial == null)
+            {
+                Shader s = Shader.Find("Sprites/Default") ?? Shader.Find("Universal Render Pipeline/2D/Sprite-Unlit-Default");
+                if (s != null) freezeBadgeBgRenderer.sharedMaterial = new Material(s);
+            }
+
+            Vector3 groupCenter = GetGateGroupWorldCenter();
+            float topY = GetGateGroupTopY();
+            if (iceShellMeshRenderer != null && iceShellObj != null && iceShellObj.activeInHierarchy)
+                topY = Mathf.Max(topY, iceShellMeshRenderer.bounds.max.y + 0.04f * cSize);
+
+            Vector3 badgeWorldPos = new Vector3(groupCenter.x, topY, groupCenter.z);
+            float pitch = levelLoader != null ? levelLoader.CameraPitchAngle : 70f;
+            freezeBadgeObj.transform.SetPositionAndRotation(badgeWorldPos, Quaternion.Euler(pitch, 0f, 0f));
+
+            float badgeSize = cSize * LegoPieceView.FreezeBadgeScale;
+            ApplyUniformWorldScale(freezeBadgeObj.transform, badgeSize, badgeSize, 1f);
+
+            Transform textTr = freezeBadgeObj.transform.Find("BadgeText");
+            GameObject textObj = textTr != null ? textTr.gameObject : new GameObject("BadgeText");
+            textObj.transform.SetParent(freezeBadgeObj.transform, false);
+            textObj.transform.localPosition = new Vector3(0f, 0f, -0.015f);
+            textObj.transform.localRotation = Quaternion.identity;
+            textObj.transform.localScale = Vector3.one;
+
+            freezeBadgeText = textObj.GetComponent<TextMeshPro>();
+            if (freezeBadgeText == null)
+                freezeBadgeText = textObj.AddComponent<TextMeshPro>();
+
+            TMP_FontAsset font = BoosterBadgeUI.GetDefaultTMPFont();
+            if (font != null) freezeBadgeText.font = font;
+
+            freezeBadgeText.text = CurrentFreezeCount.ToString();
+            freezeBadgeText.fontSize = LegoPieceView.FreezeBadgeFontSize * cSize;
+            freezeBadgeText.alignment = TextAlignmentOptions.Center;
+            freezeBadgeText.fontStyle = FontStyles.Bold;
+            freezeBadgeText.color = Color.white;
+            freezeBadgeText.sortingOrder = 45;
+        }
+
+        private static void ApplyUniformWorldScale(Transform t, float worldX, float worldY, float worldZ)
+        {
+            if (t == null) return;
+            Vector3 parentLossy = t.parent != null ? t.parent.lossyScale : Vector3.one;
+            t.localScale = new Vector3(
+                worldX / Mathf.Max(0.0001f, Mathf.Abs(parentLossy.x)),
+                worldY / Mathf.Max(0.0001f, Mathf.Abs(parentLossy.y)),
+                worldZ / Mathf.Max(0.0001f, Mathf.Abs(parentLossy.z)));
+        }
+
+        private float GetGateTargetCrackIntensity()
+        {
+            if (!IsFrozen) return 0f;
+            int maxCount = Mathf.Max(InitialFreezeCount, 1);
+            if (maxCount <= 1 || CurrentFreezeCount <= 1) return 0.95f;
+            float progress = 1f - (float)(CurrentFreezeCount - 1) / (maxCount - 1);
+            return Mathf.Lerp(0.18f, 0.95f, progress);
+        }
+
+        private void TriggerGateCrackPulse(float targetIntensity)
+        {
+            if (crackPulseCoroutine != null) StopCoroutine(crackPulseCoroutine);
+            crackPulseCoroutine = StartCoroutine(GateCrackPulseRoutine(targetIntensity));
+        }
+
+        private IEnumerator GateCrackPulseRoutine(float targetIntensity)
+        {
+            if (iceShellMeshRenderer == null) yield break;
+            if (iceMpb == null) iceMpb = new MaterialPropertyBlock();
+
+            float flashIntensity = Mathf.Min(1f, targetIntensity + 0.22f);
+            float duration = 0.22f;
+            float elapsed = 0f;
+
+            while (elapsed < duration && iceShellMeshRenderer != null)
+            {
+                elapsed += Time.deltaTime;
+                float t = elapsed / duration;
+                float cur = Mathf.Lerp(flashIntensity, targetIntensity, t * t);
+                iceShellMeshRenderer.GetPropertyBlock(iceMpb);
+                iceMpb.SetFloat("_CrackIntensity", cur);
+                iceShellMeshRenderer.SetPropertyBlock(iceMpb);
+                yield return null;
+            }
+
+            if (iceShellMeshRenderer != null)
+            {
+                iceShellMeshRenderer.GetPropertyBlock(iceMpb);
+                iceMpb.SetFloat("_CrackIntensity", targetIntensity);
+                iceShellMeshRenderer.SetPropertyBlock(iceMpb);
+            }
+
+            crackPulseCoroutine = null;
+        }
+
+        private IEnumerator GateBadgePulseRoutine()
+        {
+            if (freezeBadgeObj == null) yield break;
+
+            Transform badgeT = freezeBadgeObj.transform;
+            Vector3 baseScale = badgeT.localScale;
+            float duration = 0.20f;
+            float elapsed = 0f;
+
+            while (elapsed < duration && freezeBadgeObj != null)
+            {
+                elapsed += Time.deltaTime;
+                float t = elapsed / duration;
+                float pulse = 1f + 0.28f * Mathf.Sin(t * Mathf.PI);
+                badgeT.localScale = baseScale * pulse;
+                yield return null;
+            }
+
+            if (freezeBadgeObj != null)
+                freezeBadgeObj.transform.localScale = baseScale;
+
+            badgePulseCoroutine = null;
+        }
+
+        private Vector3 GetGateIceCenter()
+        {
+            if (iceShellMeshRenderer != null && iceShellObj != null && iceShellObj.activeInHierarchy)
+                return iceShellMeshRenderer.bounds.center;
+            if (mainRenderer != null)
+                return mainRenderer.bounds.center;
+            float cSize = cachedCellSize > 0.05f ? cachedCellSize : 1f;
+            return transform.position + Vector3.up * (0.25f * cSize);
+        }
+
+        private void SpawnGateIceChipDebris()
+        {
+            float cSize = cachedCellSize > 0.05f ? cachedCellSize : 1f;
+            Vector3 center = GetGateIceCenter();
+            int chipCount = Random.Range(3, 5);
+            Material iceMat = LegoPieceView.GetOrCreateIceMaterial();
+            float floorY = levelLoader != null ? levelLoader.BoardBaseY : 0f;
+
+            for (int i = 0; i < chipCount; i++)
+            {
+                GameObject chip = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                chip.name = "GateIceChip";
+                chip.transform.position = center + Random.insideUnitSphere * 0.18f * cSize;
+                float s = Random.Range(0.05f, 0.10f) * cSize;
+                chip.transform.localScale = new Vector3(s, s * 0.7f, s * 1.3f);
+
+                var r = chip.GetComponent<Renderer>();
+                if (r != null)
+                    r.sharedMaterial = iceMat;
+
+                var col = chip.GetComponent<Collider>();
+                if (col != null) Destroy(col);
+
+                Vector3 blastDir = (Random.insideUnitSphere + Vector3.up * 1.4f).normalized;
+                Vector3 vel = blastDir * Random.Range(2.0f, 4.0f);
+                Vector3 rot = Random.insideUnitSphere * 350f;
+
+                chip.AddComponent<LegoPieceView.PieceDebrisMotion>().Launch(chip, vel, rot, floorY);
+                Destroy(chip, 0.8f);
+            }
+        }
+
+        /// <summary>
+        /// Повний розсип льоду воріт — як SpawnIceShatterDebris на блоках / уламки від молотка.
+        /// </summary>
+        private void SpawnGateIceShatterDebris()
+        {
+            float cSize = cachedCellSize > 0.05f ? cachedCellSize : 1f;
+            Vector3 center = GetGateIceCenter();
+            Material iceMat = LegoPieceView.GetOrCreateIceMaterial();
+            float floorY = levelLoader != null ? levelLoader.BoardBaseY : 0f;
+
+            GameObject debrisRoot = new GameObject("GateIceShatterDebris");
+            debrisRoot.transform.position = center;
+
+            int shardCount = 14;
+            for (int i = 0; i < shardCount; i++)
+            {
+                GameObject shard = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                shard.transform.SetParent(debrisRoot.transform, false);
+                shard.transform.position = center + Random.insideUnitSphere * 0.28f * cSize;
+
+                float size = Random.Range(0.10f, 0.22f) * cSize;
+                shard.transform.localScale = new Vector3(size, size * 0.85f, size * 1.25f);
+
+                var r = shard.GetComponent<Renderer>();
+                if (r != null)
+                    r.sharedMaterial = iceMat;
+
+                var col = shard.GetComponent<Collider>();
+                if (col != null) Destroy(col);
+
+                Vector3 blastDir = (Random.insideUnitSphere + Vector3.up * 1.6f).normalized;
+                Vector3 initialVel = blastDir * Random.Range(3.8f, 7.0f);
+                Vector3 rotSpeed = Random.insideUnitSphere * 450f;
+
+                debrisRoot.AddComponent<LegoPieceView.PieceDebrisMotion>().Launch(shard, initialVel, rotSpeed, floorY);
+            }
+
+            Destroy(debrisRoot, 1.4f);
+        }
+
+        private IEnumerator GateUnfreezeRoutine()
+        {
+            SyncGateGroupFreezeCount(0);
+
+            // 0. Прибрати крижану оболонку одразу (без «політу вгору»)
+            if (iceShellObj != null)
+            {
+                Destroy(iceShellObj);
+                iceShellObj = null;
+                iceShellMeshFilter = null;
+                iceShellMeshRenderer = null;
+            }
+
+            // 1. Розсип уламків льоду, як на блоках
+            SpawnGateIceShatterDebris();
+
+            if (levelLoader != null)
+                levelLoader.PlayBlockUnfreezeSound();
+            if (GameSettingsManager.HasInstance)
+                GameSettingsManager.Instance.TriggerHapticExit();
+
+            // 2. Зникнення бейджа
+            if (freezeBadgeObj != null)
+            {
+                float fadeDuration = 0.18f;
+                float elapsed = 0f;
+                Vector3 origScale = freezeBadgeObj.transform.localScale;
+                while (elapsed < fadeDuration && freezeBadgeObj != null)
+                {
+                    elapsed += Time.deltaTime;
+                    float t = elapsed / fadeDuration;
+                    freezeBadgeObj.transform.localScale = Vector3.Lerp(origScale, Vector3.zero, t * t);
+                    yield return null;
+                }
+
+                if (freezeBadgeObj != null)
+                {
+                    Destroy(freezeBadgeObj);
+                    freezeBadgeObj = null;
+                    freezeBadgeBgRenderer = null;
+                    freezeBadgeText = null;
+                }
+            }
+
+            ClearGateIceVisuals();
+            unfreezeCoroutine = null;
         }
 
         private IEnumerator GateExitReactionRoutine(ExitDirection dir, Color pieceColor)
