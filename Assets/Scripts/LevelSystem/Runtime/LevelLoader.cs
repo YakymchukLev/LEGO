@@ -399,6 +399,12 @@ namespace LegoPuzzle.Runtime
                 gameObject.AddComponent<BoosterTutorialManager>();
             }
 
+            if (GetComponent<MechanicUnlockTutorialManager>() == null)
+            {
+                gameObject.AddComponent<MechanicUnlockTutorialManager>();
+            }
+
+
             if (winPanel != null) winPanel.SetActive(false);
             if (losePanel != null) losePanel.SetActive(false);
         }
@@ -975,6 +981,32 @@ namespace LegoPuzzle.Runtime
                 if (piece != null) Destroy(piece.gameObject);
             }
             activePieces.Clear();
+
+            // Orphan gate visuals (arrow/ice/badge reparented under board).
+            CleanupOrphanGateVisuals(boardContainer != null ? boardContainer : transform);
+            if (piecesContainer != null && piecesContainer != boardContainer)
+                CleanupOrphanGateVisuals(piecesContainer);
+        }
+
+        private static void CleanupOrphanGateVisuals(Transform parent)
+        {
+            if (parent == null) return;
+
+            for (int i = parent.childCount - 1; i >= 0; i--)
+            {
+                Transform child = parent.GetChild(i);
+                if (child == null) continue;
+                string n = child.name;
+                if (n == "GateArrow"
+                    || n == "GateIceShell"
+                    || n == "GateFrozenBadge"
+                    || n.StartsWith("GateArrow", System.StringComparison.Ordinal)
+                    || n.StartsWith("GateIce", System.StringComparison.Ordinal)
+                    || n.StartsWith("GateFrozen", System.StringComparison.Ordinal))
+                {
+                    Destroy(child.gameObject);
+                }
+            }
         }
 
         private void BuildGrid(LevelData levelData)
@@ -1383,21 +1415,45 @@ namespace LegoPuzzle.Runtime
 
         public void PlayBlockUnfreezeSound()
         {
+            PlayUnfreezeSoundInternal(volume: 1f, pitch: 1f);
+        }
+
+        /// <summary>
+        /// Звук повного зняття льоду з воріт (коли блокування зникає).
+        /// </summary>
+        public void PlayGateUnfreezeSound()
+        {
+            PlayUnfreezeSoundInternal(volume: 1f, pitch: 0.92f);
+        }
+
+        private static AudioClip cachedIceUnfreezeClip;
+
+        private void PlayUnfreezeSoundInternal(float volume, float pitch)
+        {
             EnsureAudioSource();
-            if (unfreezeSound != null && audioSource != null)
-            {
-                audioSource.pitch = 1.0f;
-                audioSource.PlayOneShot(unfreezeSound, 1f);
-            }
-            else if (freezeSound != null && audioSource != null)
-            {
-                audioSource.pitch = 0.85f;
-                audioSource.PlayOneShot(freezeSound, 1f);
-            }
-            else
-            {
-                PlayPieceExitSound();
-            }
+            if (audioSource == null) return;
+
+            AudioClip clip = unfreezeSound;
+            if (clip == null)
+                clip = GetIceUnfreezeClip();
+            if (clip == null)
+                clip = freezeSound;
+            if (clip == null)
+                clip = pieceExitSound != null ? pieceExitSound : palette?.pieceExitSound;
+
+            if (clip == null) return;
+
+            audioSource.pitch = pitch;
+            audioSource.PlayOneShot(clip, volume);
+        }
+
+        private static AudioClip GetIceUnfreezeClip()
+        {
+            if (cachedIceUnfreezeClip != null)
+                return cachedIceUnfreezeClip;
+
+            cachedIceUnfreezeClip = Resources.Load<AudioClip>("Sound/ice_unfreeze");
+            return cachedIceUnfreezeClip;
         }
 
         public void UpdateTimerUI(float remainingSeconds)

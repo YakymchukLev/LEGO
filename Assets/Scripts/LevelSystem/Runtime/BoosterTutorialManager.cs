@@ -43,12 +43,16 @@ namespace LegoPuzzle.Runtime
         private CanvasGroup dimCanvasGroup;
         private CanvasGroup unlockInfoCanvasGroup;
         private GameObject introTapCatcher;
-        private Coroutine fadeCoroutine;
+        private Coroutine dimFadeCoroutine;
+        private Coroutine unlockFadeCoroutine;
         private Button elevatedBoosterButton;
         private Canvas temporaryBoosterCanvas;
         private GraphicRaycaster temporaryBoosterRaycaster;
         private bool addedBoosterCanvas;
         private bool addedBoosterRaycaster;
+
+        private Canvas unlockInfoSortCanvas;
+        private const int UnlockInfoSortOrder = 40; // Dim overlay = 10
 
         private TutorialPhase phase = TutorialPhase.None;
         private Button pendingBoosterButton;
@@ -109,9 +113,23 @@ namespace LegoPuzzle.Runtime
             SetIntroTapCatcherActive(false);
         }
 
+        private void Update()
+        {
+            // Fallback: UI raycasts інколи не доходять до catcher/dim — tap anywhere все одно закриває intro.
+            if (phase != TutorialPhase.Intro) return;
+            if (Input.GetMouseButtonDown(0))
+            {
+                OnIntroTapAnywhere();
+                return;
+            }
+            if (Input.touchCount > 0 && Input.GetTouch(0).phase == TouchPhase.Began)
+                OnIntroTapAnywhere();
+        }
+
         private void HandleLevelLoaded(int levelIndex)
         {
-            IsBoosterTutorialActive = (levelIndex >= 2 && levelIndex <= 4);
+            // Не блокуємо інпут до реального старту intro-фази.
+            IsBoosterTutorialActive = false;
             phase = TutorialPhase.None;
             HideUnlockInfoPanel(immediate: true);
             SetIntroTapCatcherActive(false);
@@ -283,8 +301,7 @@ namespace LegoPuzzle.Runtime
             ApplyUnlockTextLayout();
 
             unlockInfoPanel.SetActive(true);
-            // Keep authored canvas parent/pose — only raise draw order while visible.
-            unlockInfoPanel.transform.SetAsLastSibling();
+            ElevateUnlockInfoPanel();
 
             if (unlockInfoCanvasGroup != null)
             {
@@ -293,23 +310,61 @@ namespace LegoPuzzle.Runtime
                 unlockInfoCanvasGroup.interactable = false;
             }
 
-            if (fadeCoroutine != null) StopCoroutine(fadeCoroutine);
-            fadeCoroutine = StartCoroutine(FadeUnlockInfoIn());
+            if (unlockFadeCoroutine != null) StopCoroutine(unlockFadeCoroutine);
+            unlockFadeCoroutine = StartCoroutine(FadeUnlockInfoIn());
         }
 
         private void HideUnlockInfoPanel(bool immediate)
         {
             if (unlockInfoPanel == null) return;
 
+            if (unlockFadeCoroutine != null)
+            {
+                StopCoroutine(unlockFadeCoroutine);
+                unlockFadeCoroutine = null;
+            }
+
             if (immediate || !gameObject.activeInHierarchy)
             {
                 if (unlockInfoCanvasGroup != null)
                     unlockInfoCanvasGroup.alpha = 0f;
                 unlockInfoPanel.SetActive(false);
+                RestoreUnlockInfoPanelSort();
                 return;
             }
 
-            StartCoroutine(FadeUnlockInfoOut());
+            unlockFadeCoroutine = StartCoroutine(FadeUnlockInfoOut());
+        }
+
+        private void ElevateUnlockInfoPanel()
+        {
+            if (unlockInfoPanel == null) return;
+
+            unlockInfoSortCanvas = unlockInfoPanel.GetComponent<Canvas>();
+            if (unlockInfoSortCanvas == null)
+                unlockInfoSortCanvas = unlockInfoPanel.AddComponent<Canvas>();
+
+            unlockInfoSortCanvas.enabled = true;
+            unlockInfoSortCanvas.overrideSorting = true;
+            unlockInfoSortCanvas.sortingOrder = UnlockInfoSortOrder;
+
+            // GraphicRaycaster потрібен Canvas — не Destroy'имо їх, лише вимикаємо override при hide.
+            if (unlockInfoPanel.GetComponent<GraphicRaycaster>() == null)
+                unlockInfoPanel.AddComponent<GraphicRaycaster>();
+
+            unlockInfoPanel.transform.SetAsLastSibling();
+        }
+
+        private void RestoreUnlockInfoPanelSort()
+        {
+            if (unlockInfoSortCanvas == null && unlockInfoPanel != null)
+                unlockInfoSortCanvas = unlockInfoPanel.GetComponent<Canvas>();
+
+            if (unlockInfoSortCanvas != null)
+            {
+                unlockInfoSortCanvas.overrideSorting = false;
+                unlockInfoSortCanvas.sortingOrder = 0;
+            }
         }
 
         private IEnumerator FadeUnlockInfoIn()
@@ -326,7 +381,7 @@ namespace LegoPuzzle.Runtime
             }
 
             unlockInfoCanvasGroup.alpha = 1f;
-            fadeCoroutine = null;
+            unlockFadeCoroutine = null;
         }
 
         private IEnumerator FadeUnlockInfoOut()
@@ -334,6 +389,7 @@ namespace LegoPuzzle.Runtime
             if (unlockInfoCanvasGroup == null)
             {
                 if (unlockInfoPanel != null) unlockInfoPanel.SetActive(false);
+                unlockFadeCoroutine = null;
                 yield break;
             }
 
@@ -349,6 +405,8 @@ namespace LegoPuzzle.Runtime
 
             unlockInfoCanvasGroup.alpha = 0f;
             unlockInfoPanel.SetActive(false);
+            RestoreUnlockInfoPanelSort();
+            unlockFadeCoroutine = null;
         }
 
         /// <summary>
@@ -459,46 +517,53 @@ namespace LegoPuzzle.Runtime
 
         private void EnsureIntroTapCatcher()
         {
-            if (introTapCatcher != null) return;
-
-            // Never use GameObject.Find here — it asserts during OnDisable / inactive hierarchies.
-            Canvas canvas = FindAnyObjectByType<Canvas>();
-            if (canvas != null)
+            if (introTapCatcher == null)
             {
-                Transform existing = FindNamed(canvas.transform, "BoosterTutorialIntroTapCatcher");
-                if (existing != null)
+                // Never use GameObject.Find here — it asserts during OnDisable / inactive hierarchies.
+                Canvas canvas = FindAnyObjectByType<Canvas>();
+                if (canvas != null)
                 {
-                    introTapCatcher = existing.gameObject;
-                    return;
+                    Transform existing = FindNamed(canvas.transform, "BoosterTutorialIntroTapCatcher");
+                    if (existing != null)
+                        introTapCatcher = existing.gameObject;
+                }
+
+                if (introTapCatcher == null)
+                {
+                    if (canvas == null) return;
+
+                    introTapCatcher = new GameObject("BoosterTutorialIntroTapCatcher", typeof(RectTransform), typeof(Image), typeof(Button), typeof(Canvas));
+                    introTapCatcher.transform.SetParent(canvas.transform, false);
+
+                    var rt = introTapCatcher.GetComponent<RectTransform>();
+                    rt.anchorMin = Vector2.zero;
+                    rt.anchorMax = Vector2.one;
+                    rt.offsetMin = Vector2.zero;
+                    rt.offsetMax = Vector2.zero;
+
+                    introTapCatcher.SetActive(false);
                 }
             }
 
-            if (canvas == null) return;
-
-            introTapCatcher = new GameObject("BoosterTutorialIntroTapCatcher", typeof(RectTransform), typeof(Image), typeof(Button), typeof(Canvas));
-            introTapCatcher.transform.SetParent(canvas.transform, false);
-
-            var rt = introTapCatcher.GetComponent<RectTransform>();
-            rt.anchorMin = Vector2.zero;
-            rt.anchorMax = Vector2.one;
-            rt.offsetMin = Vector2.zero;
-            rt.offsetMax = Vector2.zero;
-
             var canvasComp = introTapCatcher.GetComponent<Canvas>();
+            if (canvasComp == null) canvasComp = introTapCatcher.AddComponent<Canvas>();
             canvasComp.overrideSorting = true;
-            canvasComp.sortingOrder = 30; // Above info panel so any tap is caught
+            canvasComp.sortingOrder = 120;
 
-            introTapCatcher.AddComponent<GraphicRaycaster>();
+            if (introTapCatcher.GetComponent<GraphicRaycaster>() == null)
+                introTapCatcher.AddComponent<GraphicRaycaster>();
 
             var img = introTapCatcher.GetComponent<Image>();
-            img.color = new Color(0f, 0f, 0f, 0.01f); // nearly invisible, still raycastable
+            if (img == null) img = introTapCatcher.AddComponent<Image>();
+            img.color = new Color(0f, 0f, 0f, 0.02f);
             img.raycastTarget = true;
 
             var btn = introTapCatcher.GetComponent<Button>();
+            if (btn == null) btn = introTapCatcher.AddComponent<Button>();
             btn.transition = Selectable.Transition.None;
+            btn.targetGraphic = img;
+            btn.onClick.RemoveListener(OnIntroTapAnywhere);
             btn.onClick.AddListener(OnIntroTapAnywhere);
-
-            introTapCatcher.SetActive(false);
         }
 
         private void SetIntroTapCatcherActive(bool active)
@@ -523,55 +588,58 @@ namespace LegoPuzzle.Runtime
 
         private GameObject EnsureDimmingOverlay()
         {
-            if (dimmingOverlayPanel != null)
+            if (dimmingOverlayPanel == null)
             {
-                if (dimCanvasGroup == null) dimCanvasGroup = dimmingOverlayPanel.GetComponent<CanvasGroup>();
-                return dimmingOverlayPanel;
-            }
-
-            Canvas canvas = FindAnyObjectByType<Canvas>();
-            if (canvas != null)
-            {
-                Transform existing = FindNamed(canvas.transform, "BoosterTutorialDimOverlay");
-                if (existing != null)
+                Canvas canvas = FindAnyObjectByType<Canvas>();
+                if (canvas != null)
                 {
-                    dimmingOverlayPanel = existing.gameObject;
-                    dimCanvasGroup = dimmingOverlayPanel.GetComponent<CanvasGroup>();
-                    return dimmingOverlayPanel;
+                    Transform existing = FindNamed(canvas.transform, "BoosterTutorialDimOverlay");
+                    if (existing != null)
+                        dimmingOverlayPanel = existing.gameObject;
+                }
+
+                if (dimmingOverlayPanel == null)
+                {
+                    if (canvas == null) return null;
+
+                    dimmingOverlayPanel = new GameObject("BoosterTutorialDimOverlay");
+                    dimmingOverlayPanel.transform.SetParent(canvas.transform, false);
+
+                    RectTransform rt = dimmingOverlayPanel.AddComponent<RectTransform>();
+                    rt.anchorMin = Vector2.zero;
+                    rt.anchorMax = Vector2.one;
+                    rt.offsetMin = Vector2.zero;
+                    rt.offsetMax = Vector2.zero;
+
+                    dimmingOverlayPanel.SetActive(false);
                 }
             }
 
-            if (canvas == null) return null;
-
-            dimmingOverlayPanel = new GameObject("BoosterTutorialDimOverlay");
-            dimmingOverlayPanel.transform.SetParent(canvas.transform, false);
-
-            RectTransform rt = dimmingOverlayPanel.AddComponent<RectTransform>();
-            rt.anchorMin = Vector2.zero;
-            rt.anchorMax = Vector2.one;
-            rt.offsetMin = Vector2.zero;
-            rt.offsetMax = Vector2.zero;
-
-            Canvas subCanvas = dimmingOverlayPanel.AddComponent<Canvas>();
+            Canvas subCanvas = dimmingOverlayPanel.GetComponent<Canvas>();
+            if (subCanvas == null) subCanvas = dimmingOverlayPanel.AddComponent<Canvas>();
             subCanvas.overrideSorting = true;
             subCanvas.sortingOrder = 10;
 
-            dimmingOverlayPanel.AddComponent<GraphicRaycaster>();
+            if (dimmingOverlayPanel.GetComponent<GraphicRaycaster>() == null)
+                dimmingOverlayPanel.AddComponent<GraphicRaycaster>();
 
-            dimCanvasGroup = dimmingOverlayPanel.AddComponent<CanvasGroup>();
-            dimCanvasGroup.alpha = 0f;
+            dimCanvasGroup = dimmingOverlayPanel.GetComponent<CanvasGroup>();
+            if (dimCanvasGroup == null) dimCanvasGroup = dimmingOverlayPanel.AddComponent<CanvasGroup>();
             dimCanvasGroup.blocksRaycasts = true;
             dimCanvasGroup.interactable = true;
 
-            Image img = dimmingOverlayPanel.AddComponent<Image>();
+            Image img = dimmingOverlayPanel.GetComponent<Image>();
+            if (img == null) img = dimmingOverlayPanel.AddComponent<Image>();
             img.color = Color.black;
             img.raycastTarget = true;
 
-            Button overlayBtn = dimmingOverlayPanel.AddComponent<Button>();
+            Button overlayBtn = dimmingOverlayPanel.GetComponent<Button>();
+            if (overlayBtn == null) overlayBtn = dimmingOverlayPanel.AddComponent<Button>();
             overlayBtn.transition = Selectable.Transition.None;
+            overlayBtn.targetGraphic = img;
+            overlayBtn.onClick.RemoveListener(OnDimOverlayClicked);
             overlayBtn.onClick.AddListener(OnDimOverlayClicked);
 
-            dimmingOverlayPanel.SetActive(false);
             return dimmingOverlayPanel;
         }
 
@@ -611,7 +679,7 @@ namespace LegoPuzzle.Runtime
 
                 temporaryBoosterCanvas.enabled = true;
                 temporaryBoosterCanvas.overrideSorting = true;
-                temporaryBoosterCanvas.sortingOrder = 15;
+                temporaryBoosterCanvas.sortingOrder = 50;
 
                 temporaryBoosterRaycaster = elevateBooster.gameObject.GetComponent<GraphicRaycaster>();
                 if (temporaryBoosterRaycaster == null)
@@ -626,16 +694,16 @@ namespace LegoPuzzle.Runtime
             dimmingOverlayPanel.SetActive(true);
             dimmingOverlayPanel.transform.SetAsLastSibling();
 
-            if (fadeCoroutine != null) StopCoroutine(fadeCoroutine);
-            fadeCoroutine = StartCoroutine(FadeRoutine(dimAlpha, fadeDuration));
+            if (dimFadeCoroutine != null) StopCoroutine(dimFadeCoroutine);
+            dimFadeCoroutine = StartCoroutine(FadeRoutine(dimAlpha, fadeDuration));
         }
 
         private void HideDimmingOverlay(bool immediate = false)
         {
-            if (fadeCoroutine != null)
+            if (dimFadeCoroutine != null)
             {
-                StopCoroutine(fadeCoroutine);
-                fadeCoroutine = null;
+                StopCoroutine(dimFadeCoroutine);
+                dimFadeCoroutine = null;
             }
 
             if (immediate || dimmingOverlayPanel == null || !gameObject.activeInHierarchy)
@@ -646,7 +714,7 @@ namespace LegoPuzzle.Runtime
                 return;
             }
 
-            fadeCoroutine = StartCoroutine(FadeOutAndDisableRoutine());
+            dimFadeCoroutine = StartCoroutine(FadeOutAndDisableRoutine());
         }
 
         private IEnumerator FadeRoutine(float targetAlpha, float duration)
@@ -665,7 +733,7 @@ namespace LegoPuzzle.Runtime
             }
 
             dimCanvasGroup.alpha = targetAlpha;
-            fadeCoroutine = null;
+            dimFadeCoroutine = null;
         }
 
         private IEnumerator FadeOutAndDisableRoutine()
@@ -691,7 +759,7 @@ namespace LegoPuzzle.Runtime
                 dimmingOverlayPanel.SetActive(false);
 
             RestoreElevatedBooster();
-            fadeCoroutine = null;
+            dimFadeCoroutine = null;
         }
 
         private void RestoreElevatedBooster()

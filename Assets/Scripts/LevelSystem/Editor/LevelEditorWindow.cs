@@ -40,6 +40,10 @@ namespace LegoPuzzle.Editor
         private LegoPieceData selectedPiece = null;
         private bool showPiecesListFoldout = false;
 
+        // Виділені ворота (група сусідніх клітинок одного типу/кольору/напрямку)
+        private readonly List<Vector2Int> selectedGateCells = new List<Vector2Int>();
+        private Vector2Int selectedGateAnchor = new Vector2Int(-1, -1);
+
         // Перетягування блоку в режимі SelectPiece
         private bool isDraggingSelectedPiece;
         private Vector2Int dragGrabOffset;
@@ -152,6 +156,7 @@ namespace LegoPuzzle.Editor
             }
 
             selectedPiece = null;
+            ClearGateSelection();
             CancelPieceDrag();
         }
 
@@ -399,7 +404,7 @@ namespace LegoPuzzle.Editor
         private void DrawToolbarPanel()
         {
             EditorGUILayout.LabelField("Інструменти редагування", EditorStyles.boldLabel);
-            currentMode = (PaintMode)GUILayout.Toolbar((int)currentMode, new string[] { "Пензель клітинок", "Поставити блок", "Вибір / Редагування блоку", "Видалити блок" });
+            currentMode = (PaintMode)GUILayout.Toolbar((int)currentMode, new string[] { "Пензель клітинок", "Поставити блок", "Вибір / Редагування", "Видалити блок" });
 
             EditorGUILayout.BeginVertical(EditorStyles.helpBox);
 
@@ -417,32 +422,7 @@ namespace LegoPuzzle.Editor
                     brushExitDir = (ExitDirection)EditorGUILayout.EnumPopup("Напрямок виходу (Стрілка)", brushExitDir);
                     brushColorType = (BlockColorType)EditorGUILayout.EnumPopup("Колір воріт", brushColorType);
 
-                    string[] halfOptions = new string[]
-                    {
-                        "Нижня половина (Horizontal Bottom  ▄) — для верхньої стіни",
-                        "Верхня половина (Horizontal Top  ▀) — для нижньої стіни",
-                        "Ліва половина (Vertical Left  ▌) — для правої стіни",
-                        "Права половина (Vertical Right  ▐) — для лівої стіни"
-                    };
-
-                    int currentIdx = brushGateAlignment switch
-                    {
-                        1 => 0, // Bottom ▄
-                        0 => 1, // Top ▀
-                        2 => 2, // Left ▌
-                        3 => 3, // Right ▐
-                        _ => 0
-                    };
-
-                    int newIdx = EditorGUILayout.Popup("Положення половинки у клітинці", currentIdx, halfOptions);
-                    brushGateAlignment = newIdx switch
-                    {
-                        0 => 1, // Bottom ▄
-                        1 => 0, // Top ▀
-                        2 => 2, // Left ▌
-                        3 => 3, // Right ▐
-                        _ => 1
-                    };
+                    brushGateAlignment = DrawHalfGateAlignmentPopup(brushGateAlignment);
 
                     DrawGateFreezeBrushSettings();
                 }
@@ -452,12 +432,13 @@ namespace LegoPuzzle.Editor
                 }
                 else if (brushCellType == CellType.QuarterObstacle)
                 {
+                    // Left=TL, Up=TR, Down=BL, Right=BR (див. GridCellView)
                     string[] cornerOptions = new string[]
                     {
-                        "Низ-Право (Top-Left)  ▘",
-                        "Низ-Ліво (Top-Right)  ▝",
-                        "Верх-Право (Bottom-Left)  ▖",
-                        "Верх-Ліво (Bottom-Right)  ▗"
+                        "Верх-Ліво (Top-Left)  ▘",
+                        "Верх-Право (Top-Right)  ▝",
+                        "Низ-Ліво (Bottom-Left)  ▖",
+                        "Низ-Право (Bottom-Right)  ▗"
                     };
                     int currentCornerIndex = brushExitDir switch
                     {
@@ -547,13 +528,13 @@ namespace LegoPuzzle.Editor
             }
             else if (currentMode == PaintMode.SelectPiece)
             {
-                if (selectedPiece == null)
+                if (selectedPiece == null && selectedGateCells.Count == 0)
                 {
                     EditorGUILayout.HelpBox(
-                        "Клікніть на блок, щоб обрати його. Перетягніть блок на іншу клітинку, щоб змінити позицію.",
+                        "Клікніть на блок або ворота, щоб обрати їх. Перетягніть блок на іншу клітинку, щоб змінити позицію.",
                         MessageType.Info);
                 }
-                else
+                else if (selectedPiece != null)
                 {
                     EditorGUILayout.HelpBox(
                         isDraggingSelectedPiece
@@ -645,6 +626,9 @@ namespace LegoPuzzle.Editor
                 }
             }
 
+            if (currentMode == PaintMode.SelectPiece && selectedGateCells.Count > 0 && selectedPiece == null)
+                DrawSelectedGateSettings();
+
             EditorGUILayout.BeginHorizontal();
             if (GUILayout.Button("Заповнити все Walkable"))
             {
@@ -664,6 +648,132 @@ namespace LegoPuzzle.Editor
             EditorGUILayout.EndVertical();
         }
 
+        private static int DrawHalfGateAlignmentPopup(int alignment)
+        {
+            string[] halfOptions =
+            {
+                "Нижня половина (Horizontal Bottom  ▄) — для верхньої стіни",
+                "Верхня половина (Horizontal Top  ▀) — для нижньої стіни",
+                "Ліва половина (Vertical Left  ▌) — для правої стіни",
+                "Права половина (Vertical Right  ▐) — для лівої стіни"
+            };
+
+            int currentIdx = alignment switch
+            {
+                1 => 0,
+                0 => 1,
+                2 => 2,
+                3 => 3,
+                _ => 0
+            };
+
+            int newIdx = EditorGUILayout.Popup("Положення половинки у клітинці", currentIdx, halfOptions);
+            return newIdx switch
+            {
+                0 => 1,
+                1 => 0,
+                2 => 2,
+                3 => 3,
+                _ => 1
+            };
+        }
+
+        private void DrawSelectedGateSettings()
+        {
+            if (targetLevel == null || selectedGateCells.Count == 0)
+                return;
+
+            if (!TryGetSelectedGateSeed(out CellData seed))
+            {
+                ClearGateSelection();
+                return;
+            }
+
+            EditorGUILayout.Space(6);
+            EditorGUILayout.LabelField(
+                selectedGateCells.Count == 1
+                    ? $"Налаштування воріт ({selectedGateAnchor.x},{selectedGateAnchor.y})"
+                    : $"Налаштування воріт — група з {selectedGateCells.Count} клітинок",
+                EditorStyles.boldLabel);
+
+            EditorGUI.BeginChangeCheck();
+
+            CellType newType = (CellType)EditorGUILayout.EnumPopup("Тип воріт", seed.cellType);
+            if (newType != CellType.ExitGate && newType != CellType.HalfExitGate)
+                newType = seed.cellType;
+
+            ExitDirection newDir = (ExitDirection)EditorGUILayout.EnumPopup("Напрямок виходу", seed.exitDirection);
+            BlockColorType newColor = (BlockColorType)EditorGUILayout.EnumPopup("Колір воріт", seed.gateColorType);
+
+            int newAlignment = seed.gateAlignment;
+            if (newType == CellType.HalfExitGate || seed.cellType == CellType.HalfExitGate)
+            {
+                newAlignment = DrawHalfGateAlignmentPopup(seed.gateAlignment);
+                if (selectedGateCells.Count > 1)
+                    EditorGUILayout.HelpBox("Alignment змінюється лише для клітинки, по якій клікнули (половинки в парі різні).", MessageType.None);
+            }
+
+            EditorGUILayout.Space(4);
+            EditorGUILayout.BeginHorizontal();
+            int newFreeze = EditorGUILayout.IntField("❄ Лічильник заморозки", Mathf.Max(0, seed.freezeCount));
+            if (GUILayout.Button("0 (Розморозити)", GUILayout.Width(120)))
+                newFreeze = 0;
+            EditorGUILayout.EndHorizontal();
+
+            if (newFreeze > 0)
+            {
+                EditorGUILayout.HelpBox(
+                    $"Ворота заморожені. Блоки не вийдуть, доки не буде знищено/виведено {newFreeze} інших блоків.",
+                    MessageType.Warning);
+            }
+
+            if (EditorGUI.EndChangeCheck())
+            {
+                Undo.RecordObject(targetLevel, "Edit Selected Gates");
+                for (int i = 0; i < selectedGateCells.Count; i++)
+                {
+                    Vector2Int pos = selectedGateCells[i];
+                    CellData cell = targetLevel.GetCell(pos.x, pos.y);
+                    cell.cellType = newType;
+                    cell.exitDirection = newDir;
+                    cell.gateColorType = newColor;
+                    cell.freezeCount = newFreeze;
+                    if (pos == selectedGateAnchor)
+                        cell.gateAlignment = newAlignment;
+                    targetLevel.SetCell(pos.x, pos.y, cell);
+                }
+
+                brushCellType = newType;
+                brushExitDir = newDir;
+                brushColorType = newColor;
+                brushGateAlignment = newAlignment;
+                brushGateFreezeCount = newFreeze;
+
+                EditorUtility.SetDirty(targetLevel);
+                AssetDatabase.SaveAssets();
+            }
+
+            EditorGUILayout.BeginHorizontal();
+            if (GUILayout.Button("Зняти виділення"))
+                ClearGateSelection();
+
+            GUI.backgroundColor = new Color(1f, 0.45f, 0.45f);
+            if (GUILayout.Button("Видалити обрані ворота"))
+            {
+                Undo.RecordObject(targetLevel, "Delete Selected Gates");
+                for (int i = 0; i < selectedGateCells.Count; i++)
+                {
+                    Vector2Int pos = selectedGateCells[i];
+                    targetLevel.SetCell(pos.x, pos.y, new CellData(pos, CellType.Empty));
+                }
+                ClearGateSelection();
+                EditorUtility.SetDirty(targetLevel);
+                AssetDatabase.SaveAssets();
+            }
+            GUI.backgroundColor = Color.white;
+            EditorGUILayout.EndHorizontal();
+        }
+
         private void DrawGateFreezeBrushSettings()
         {
             EditorGUILayout.Space(4);
@@ -676,14 +786,8 @@ namespace LegoPuzzle.Editor
             if (brushGateFreezeCount > 0)
             {
                 EditorGUILayout.HelpBox(
-                    $"Ворота будуть замороженими. Блоки не вийдуть через них, доки не буде знищено/виведено {brushGateFreezeCount} інших блоків (як ❄ на деталях).\nCtrl+клік по вже намальованих воротах оновлює лише лічильник ❄.",
+                    $"Ворота будуть замороженими. Блоки не вийдуть через них, доки не буде знищено/виведено {brushGateFreezeCount} інших блоків.\nЩоб змінити вже намальовані ворота — режим «Вибір / Редагування».",
                     MessageType.Info);
-            }
-            else
-            {
-                EditorGUILayout.HelpBox(
-                    "Ctrl+клік по існуючих воротах оновлює лише лічильник заморозки (0 = розморожені).",
-                    MessageType.None);
             }
         }
 
@@ -738,7 +842,7 @@ namespace LegoPuzzle.Editor
 
             EditorGUILayout.BeginHorizontal();
             string gridHint = currentMode == PaintMode.SelectPiece
-                ? "Інтерактивне поле (перетягніть блок, щоб змінити позицію):"
+                ? "Інтерактивне поле (блок / ворота — клік для вибору, блок можна перетягнути):"
                 : "Інтерактивне поле (клікніть для редагування):";
             EditorGUILayout.LabelField(gridHint, EditorStyles.boldLabel);
             GUILayout.FlexibleSpace();
@@ -778,6 +882,15 @@ namespace LegoPuzzle.Editor
                         EditorGUI.DrawRect(new Rect(cellRect.x, cellRect.y, 2.5f, cellRect.height), selBorder);
                         EditorGUI.DrawRect(new Rect(cellRect.x, cellRect.yMax - 2.5f, cellRect.width, 2.5f), selBorder);
                         EditorGUI.DrawRect(new Rect(cellRect.xMax - 2.5f, cellRect.y, 2.5f, cellRect.height), selBorder);
+                    }
+                    else if (IsGateCellSelected(x, y))
+                    {
+                        Color gateBorder = new Color(0.25f, 0.95f, 1f, 1f);
+                        float t = (selectedGateAnchor.x == x && selectedGateAnchor.y == y) ? 3.5f : 2.5f;
+                        EditorGUI.DrawRect(new Rect(cellRect.x, cellRect.y, cellRect.width, t), gateBorder);
+                        EditorGUI.DrawRect(new Rect(cellRect.x, cellRect.y, t, cellRect.height), gateBorder);
+                        EditorGUI.DrawRect(new Rect(cellRect.x, cellRect.yMax - t, cellRect.width, t), gateBorder);
+                        EditorGUI.DrawRect(new Rect(cellRect.xMax - t, cellRect.y, t, cellRect.height), gateBorder);
                     }
 
                     if (cellRects != null)
@@ -880,6 +993,7 @@ namespace LegoPuzzle.Editor
 
                 if (pieceOnCell != null)
                 {
+                    ClearGateSelection();
                     selectedPiece = pieceOnCell;
                     isDraggingSelectedPiece = true;
                     dragGrabOffset = dragHoverCell.Value - selectedPiece.originPosition;
@@ -893,6 +1007,11 @@ namespace LegoPuzzle.Editor
                 {
                     selectedPiece = null;
                     CancelPieceDrag();
+                    Vector2Int cell = dragHoverCell.Value;
+                    if (IsGateCell(targetLevel.GetCell(cell.x, cell.y)))
+                        SelectGateGroupAt(cell.x, cell.y);
+                    else
+                        ClearGateSelection();
                     e.Use();
                     Repaint();
                 }
@@ -1029,6 +1148,7 @@ namespace LegoPuzzle.Editor
                     if (GUILayout.Button(isSel ? $"▶ {p.pieceId}" : p.pieceId, GUILayout.Width(100)))
                     {
                         selectedPiece = p;
+                        ClearGateSelection();
                         currentMode = PaintMode.SelectPiece;
                     }
                     GUI.backgroundColor = Color.white;
@@ -1102,34 +1222,33 @@ namespace LegoPuzzle.Editor
 
             if (currentMode == PaintMode.CellBrush)
             {
-                CellData existingCell = targetLevel.GetCell(x, y);
-                bool existingIsGate = existingCell.cellType == CellType.ExitGate
-                                     || existingCell.cellType == CellType.HalfExitGate;
-
-                // Ctrl+клік по існуючих воротах — лише оновити ❄ лічильник (і підхопити його в пензель).
-                if (Event.current != null && Event.current.control && existingIsGate)
+                ClearGateSelection();
+                CellData newCell = new CellData(new Vector2Int(x, y), brushCellType)
                 {
-                    brushGateFreezeCount = Mathf.Max(0, brushGateFreezeCount);
-                    existingCell.freezeCount = brushGateFreezeCount;
-                    targetLevel.SetCell(x, y, existingCell);
-                }
-                else
-                {
-                    CellData newCell = new CellData(new Vector2Int(x, y), brushCellType)
-                    {
-                        exitDirection = brushExitDir,
-                        gateColorType = brushColorType,
-                        gateAlignment = brushGateAlignment,
-                        freezeCount = (brushCellType == CellType.ExitGate || brushCellType == CellType.HalfExitGate)
-                            ? Mathf.Max(0, brushGateFreezeCount)
-                            : 0
-                    };
-                    targetLevel.SetCell(x, y, newCell);
-                }
+                    exitDirection = brushExitDir,
+                    gateColorType = brushColorType,
+                    gateAlignment = brushGateAlignment,
+                    freezeCount = (brushCellType == CellType.ExitGate || brushCellType == CellType.HalfExitGate)
+                        ? Mathf.Max(0, brushGateFreezeCount)
+                        : 0
+                };
+                targetLevel.SetCell(x, y, newCell);
             }
             else if (currentMode == PaintMode.SelectPiece)
             {
                 selectedPiece = GetPieceAt(x, y);
+                if (selectedPiece != null)
+                {
+                    ClearGateSelection();
+                }
+                else if (IsGateCell(targetLevel.GetCell(x, y)))
+                {
+                    SelectGateGroupAt(x, y);
+                }
+                else
+                {
+                    ClearGateSelection();
+                }
             }
             else if (currentMode == PaintMode.PlacePiece)
             {
@@ -1232,6 +1351,7 @@ namespace LegoPuzzle.Editor
                     targetLevel.SetCell(x, y, new CellData(new Vector2Int(x, y), type));
                 }
             }
+            ClearGateSelection();
             EditorUtility.SetDirty(targetLevel);
             AssetDatabase.SaveAssets();
         }
@@ -1380,11 +1500,111 @@ namespace LegoPuzzle.Editor
 
             targetLevel = next;
             selectedPiece = null;
+            ClearGateSelection();
             CancelPieceDrag();
             Selection.activeObject = next;
             GUI.FocusControl(null);
             Repaint();
         }
+
+        private static bool IsGateCell(CellData cell)
+        {
+            return cell.cellType == CellType.ExitGate || cell.cellType == CellType.HalfExitGate;
+        }
+
+        private bool IsGateCellSelected(int x, int y)
+        {
+            Vector2Int pos = new Vector2Int(x, y);
+            for (int i = 0; i < selectedGateCells.Count; i++)
+            {
+                if (selectedGateCells[i] == pos)
+                    return true;
+            }
+            return false;
+        }
+
+        private void ClearGateSelection()
+        {
+            selectedGateCells.Clear();
+            selectedGateAnchor = new Vector2Int(-1, -1);
+        }
+
+        private bool TryGetSelectedGateSeed(out CellData seed)
+        {
+            seed = default;
+            if (targetLevel == null || selectedGateCells.Count == 0)
+                return false;
+
+            Vector2Int anchor = selectedGateAnchor;
+            if (anchor.x < 0 || !targetLevel.IsInsideGrid(anchor.x, anchor.y) || !IsGateCell(targetLevel.GetCell(anchor.x, anchor.y)))
+                anchor = selectedGateCells[0];
+
+            if (!targetLevel.IsInsideGrid(anchor.x, anchor.y))
+                return false;
+
+            seed = targetLevel.GetCell(anchor.x, anchor.y);
+            if (!IsGateCell(seed))
+                return false;
+
+            selectedGateAnchor = anchor;
+            return true;
+        }
+
+        private void SelectGateGroupAt(int x, int y)
+        {
+            selectedGateCells.Clear();
+            selectedGateAnchor = new Vector2Int(x, y);
+
+            if (targetLevel == null || !targetLevel.IsInsideGrid(x, y))
+                return;
+
+            CellData seed = targetLevel.GetCell(x, y);
+            if (!IsGateCell(seed))
+                return;
+
+            var visited = new HashSet<Vector2Int>();
+            var queue = new Queue<Vector2Int>();
+            Vector2Int start = new Vector2Int(x, y);
+            queue.Enqueue(start);
+            visited.Add(start);
+
+            while (queue.Count > 0)
+            {
+                Vector2Int cur = queue.Dequeue();
+                selectedGateCells.Add(cur);
+
+                Vector2Int[] neighbors =
+                {
+                    cur + Vector2Int.up,
+                    cur + Vector2Int.down,
+                    cur + Vector2Int.left,
+                    cur + Vector2Int.right
+                };
+
+                for (int n = 0; n < neighbors.Length; n++)
+                {
+                    Vector2Int nb = neighbors[n];
+                    if (visited.Contains(nb) || !targetLevel.IsInsideGrid(nb.x, nb.y))
+                        continue;
+
+                    CellData other = targetLevel.GetCell(nb.x, nb.y);
+                    if (other.cellType != seed.cellType) continue;
+                    if (other.exitDirection != seed.exitDirection) continue;
+                    if (other.gateColorType != seed.gateColorType) continue;
+
+                    visited.Add(nb);
+                    queue.Enqueue(nb);
+                }
+            }
+
+            // Підхопити налаштування в пензель для зручності.
+            brushCellType = seed.cellType;
+            brushExitDir = seed.exitDirection;
+            brushColorType = seed.gateColorType;
+            brushGateAlignment = seed.gateAlignment;
+            brushGateFreezeCount = Mathf.Max(0, seed.freezeCount);
+        }
+
     }
 }
 #endif

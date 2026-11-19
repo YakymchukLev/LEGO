@@ -64,6 +64,21 @@ namespace LegoPuzzle.Runtime
         public bool menuUnlockTutorialSlotsShown;
         public bool menuUnlockTutorialLottoShown;
 
+        // Level 10 one-direction move mechanic unlock modal (once)
+        public bool mechanicUnlockTutorialOneWayShown;
+
+        // Level 20 frozen block mechanic unlock modal (once)
+        public bool mechanicUnlockTutorialFrozenShown;
+
+        // Level 30 double-layer block mechanic unlock modal (once)
+        public bool mechanicUnlockTutorialDoubleLayerShown;
+
+        // Level 40 movable barrier mechanic unlock modal (once)
+        public bool mechanicUnlockTutorialMovableBarrierShown;
+
+        // Level 50 frozen gate mechanic unlock modal (once)
+        public bool mechanicUnlockTutorialFrozenGateShown;
+
         // Налаштування гри
         public SettingsSaveData settings = new SettingsSaveData();
 

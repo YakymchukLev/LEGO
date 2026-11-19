@@ -41,7 +41,9 @@ namespace LegoPuzzle.Data
         Cyan = 6,
         Orange = 7,
         Custom = 8,
-        Universal = 9 // Універсальні ворота: вихід для будь-яких блоків
+        Universal = 9, // Універсальні ворота: вихід для будь-яких блоків
+        Teal = 10,        // Teal gate/block #208090
+        ForestGreen = 11  // Forest green gate/block #288030
     }
 
     [Serializable]

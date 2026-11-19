@@ -83,7 +83,8 @@ namespace LegoPuzzle.Editor
                 LegoLevelGenerator.DifficultyTier.Medium,
                 LegoLevelGenerator.DifficultyTier.Hard,
                 LegoLevelGenerator.DifficultyTier.VeryHard,
-                LegoLevelGenerator.DifficultyTier.Expert
+                LegoLevelGenerator.DifficultyTier.Expert,
+                LegoLevelGenerator.DifficultyTier.Nightmare
             };
 
             Debug.Log("<color=cyan>=== Початок тестування генератора рівнів для всіх складностей ===</color>");
@@ -248,9 +249,19 @@ namespace LegoPuzzle.Editor
             DrawDifficultyButton("👑 Експерт", LegoLevelGenerator.DifficultyTier.Expert, new Color(0.95f, 0.4f, 0.4f));
             EditorGUILayout.EndHorizontal();
 
+            EditorGUILayout.BeginHorizontal();
+            DrawDifficultyButton("☠️ ПЕКЛО", LegoLevelGenerator.DifficultyTier.Nightmare, new Color(0.75f, 0.15f, 0.15f));
+            EditorGUILayout.EndHorizontal();
+
             EditorGUILayout.Space(4);
             string diffDesc = LegoLevelGenerator.GetDifficultyDescription(currentSettings.difficultyTier);
             EditorGUILayout.HelpBox(diffDesc, MessageType.Info);
+            if (currentSettings.difficultyTier == LegoLevelGenerator.DifficultyTier.Nightmare)
+            {
+                EditorGUILayout.HelpBox(
+                    "Пекло = щільність: менша сітка, більше блоків/стін, усі слайдери, densify центру. Порожня арена більше не пройде як «пекло».",
+                    MessageType.Warning);
+            }
 
             EditorGUILayout.EndVertical();
 
@@ -325,6 +336,40 @@ namespace LegoPuzzle.Editor
                 {
                     currentSettings.difficultyTier = LegoLevelGenerator.DifficultyTier.Custom;
                 }
+
+                EditorGUILayout.BeginHorizontal();
+                if (GUILayout.Button("▬ I (вертикаль)", GUILayout.Height(22)))
+                {
+                    currentSettings.archetype = LegoLevelGenerator.BoardArchetype.DumbbellVertical;
+                    currentSettings.gridWidth = Mathf.Max(8, currentSettings.gridWidth);
+                    currentSettings.gridHeight = Mathf.Max(currentSettings.gridWidth + 4, 12);
+                    currentSettings.difficultyTier = LegoLevelGenerator.DifficultyTier.Custom;
+                }
+                if (GUILayout.Button("▮ H (горизонт)", GUILayout.Height(22)))
+                {
+                    currentSettings.archetype = LegoLevelGenerator.BoardArchetype.DumbbellHorizontal;
+                    currentSettings.gridHeight = Mathf.Max(7, currentSettings.gridHeight);
+                    currentSettings.gridWidth = Mathf.Max(currentSettings.gridHeight + 4, 11);
+                    currentSettings.difficultyTier = LegoLevelGenerator.DifficultyTier.Custom;
+                }
+                if (GUILayout.Button("▭ Галерея", GUILayout.Height(22)))
+                {
+                    currentSettings.archetype = LegoLevelGenerator.BoardArchetype.WideGallery;
+                    currentSettings.gridWidth = 12;
+                    currentSettings.gridHeight = 8;
+                    currentSettings.difficultyTier = LegoLevelGenerator.DifficultyTier.Custom;
+                }
+                if (GUILayout.Button("⊓ Мости", GUILayout.Height(22)))
+                {
+                    currentSettings.archetype = LegoLevelGenerator.BoardArchetype.TwinChambers;
+                    currentSettings.gridWidth = 9;
+                    currentSettings.gridHeight = 13;
+                    currentSettings.difficultyTier = LegoLevelGenerator.DifficultyTier.Custom;
+                }
+                EditorGUILayout.EndHorizontal();
+                EditorGUILayout.HelpBox(
+                    "Силуети I/H/мости вирізають Empty-зони (не квадратна «коробка»). Генератор сам піджене аспект сітки під архетип.",
+                    MessageType.None);
 
                 EditorGUILayout.Space(4);
                 EditorGUILayout.LabelField("Обмеження руху деталей (Sliders):", EditorStyles.boldLabel);
@@ -437,7 +482,10 @@ namespace LegoPuzzle.Editor
                 EditorGUILayout.EndHorizontal();
                 if (currentSettings.allowMovableBarriers)
                 {
-                    EditorGUILayout.HelpBox("1×1 бар'єри кольору стін: рухаються, блокують шлях, не виводяться. Генератор ставить Free-бар'єри; ❄ / ↔↕ можна задати в Level Editor.", MessageType.Info);
+                    EditorGUILayout.HelpBox(
+                        "🧱 Бар'єри кольору стін: рухаються, блокують шлях, не виводяться. " +
+                        "Форми беруться з увімкнених нижче (1×1, 1×2, L, …). Free за замовчуванням; ❄ / ↔↕ — у Level Editor.",
+                        MessageType.Info);
                 }
 
                 EditorGUILayout.Space(4);
@@ -471,10 +519,19 @@ namespace LegoPuzzle.Editor
                 currentSettings.movesLimit = EditorGUILayout.IntField("Ліміт ходів (0=off)", currentSettings.movesLimit);
                 EditorGUILayout.EndHorizontal();
 
-                EditorGUILayout.BeginHorizontal();
-                currentSettings.targetMinMoves = EditorGUILayout.IntSlider("Цільова мін. к-сть ходів", currentSettings.targetMinMoves, 2, 50);
+                EditorGUI.BeginChangeCheck();
+                currentSettings.brutalFeel = EditorGUILayout.ToggleLeft(
+                    "☠️ Жорстокий feel (Free→слайдери, densify, freeze-сходинка)",
+                    currentSettings.brutalFeel);
+                currentSettings.targetMinMoves = EditorGUILayout.IntSlider(
+                    "Цільова мін. к-сть ходів", currentSettings.targetMinMoves, 2, 150);
+                if (EditorGUI.EndChangeCheck())
+                    currentSettings.difficultyTier = LegoLevelGenerator.DifficultyTier.Custom;
+
+                EditorGUILayout.HelpBox(
+                    "Слайдер = ціль BFS-ходів. Генератор крутиться без ліміту спроб, доки не набере ≥90% (або Cancel). Збереження доступне завжди.",
+                    MessageType.Info);
                 currentSettings.randomSeed = EditorGUILayout.IntField("Seed (0=rnd)", currentSettings.randomSeed);
-                EditorGUILayout.EndHorizontal();
 
                 if (currentSettings.useShape1x1
                     || (currentSettings.allowFreeMove && (currentSettings.allowHorizontalOnly || currentSettings.allowVerticalOnly))
@@ -508,7 +565,19 @@ namespace LegoPuzzle.Editor
             // Відображення результату
             if (currentResult.levelData != null)
             {
-                DrawResultStats();
+                int gotMoves = currentResult.solverResult.optimalMoves;
+                int wantMoves = Mathf.Max(2, currentSettings.targetMinMoves);
+                bool meetsTarget = currentResult.success && gotMoves >= Mathf.Max(2, (int)(wantMoves * 0.9f));
+
+                if (!meetsTarget)
+                {
+                    EditorGUILayout.HelpBox(
+                        $"⚠ Ціль ходів ще не виконана: {gotMoves} / {wantMoves}. Збереження доступне. " +
+                        "Для рівня «як у налаштуваннях» дочекайся генерації без Cancel.",
+                        MessageType.Warning);
+                }
+
+                DrawResultStats(meetsTarget);
                 DrawGridVisualizer(currentResult.levelData);
                 DrawActionButtons();
             }
@@ -564,8 +633,19 @@ namespace LegoPuzzle.Editor
                     currentSettings = freshSettings;
                 }
 
-                EditorUtility.DisplayProgressBar("Генерація рівня", "Йде пошук розв'язуваного рівня…", 0.35f);
-                currentResult = LegoLevelGenerator.GenerateLevel(currentSettings);
+                bool hell = currentSettings.difficultyTier == LegoLevelGenerator.DifficultyTier.Nightmare
+                            || currentSettings.brutalFeel;
+                currentResult = LegoLevelGenerator.GenerateLevel(
+                    currentSettings,
+                    (progress, status) =>
+                    {
+                        return EditorUtility.DisplayCancelableProgressBar(
+                            hell ? "☠️ Генерація ПЕКЛА" : "Генерація рівня",
+                            string.IsNullOrEmpty(status) ? "Йде пошук розв'язуваного рівня…" : status,
+                            progress);
+                    },
+                    timeBudgetSeconds: 0f); // 0 = без ліміту; зупинка лише Cancel
+
                 if (currentResult.success && currentResult.levelData != null)
                 {
                     currentResult.levelData.levelIndex = currentSettings.levelIndex;
@@ -607,16 +687,26 @@ namespace LegoPuzzle.Editor
             Repaint();
         }
 
-        private void DrawResultStats()
+        private void DrawResultStats(bool meetsTarget)
         {
             EditorGUILayout.BeginVertical(EditorStyles.helpBox);
             EditorGUILayout.BeginHorizontal();
 
-            GUI.color = Color.green;
-            EditorGUILayout.LabelField("✅ 100% Solvable", EditorStyles.boldLabel, GUILayout.Width(130));
+            if (meetsTarget)
+            {
+                GUI.color = Color.green;
+                EditorGUILayout.LabelField("✅ 100% Solvable", EditorStyles.boldLabel, GUILayout.Width(130));
+            }
+            else
+            {
+                GUI.color = new Color(1f, 0.45f, 0.35f);
+                EditorGUILayout.LabelField("❌ Нижче цілі", EditorStyles.boldLabel, GUILayout.Width(130));
+            }
             GUI.color = Color.white;
 
-            EditorGUILayout.LabelField($"🎯 Хід розв'язку: {currentResult.solverResult.optimalMoves} кроків", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField(
+                $"🎯 Хід розв'язку: {currentResult.solverResult.optimalMoves} / ціль {currentSettings.targetMinMoves}",
+                EditorStyles.boldLabel);
             EditorGUILayout.LabelField($"🏛 Архетип: {currentSettings.archetype}");
             int pieceCount = currentResult.levelData.pieces != null ? currentResult.levelData.pieces.Count : 0;
             int frozenCount = 0;
@@ -915,7 +1005,7 @@ namespace LegoPuzzle.Editor
                 batchAllowFrozenGates = EditorGUILayout.ToggleLeft("Дозволити заморожені ворота (❄🚪)", batchAllowFrozenGates);
                 batchAllowMovableBarriers = EditorGUILayout.ToggleLeft("Дозволити рухомі бар'єри (🧱)", batchAllowMovableBarriers);
                 batchAllowUniversalGates = EditorGUILayout.ToggleLeft("Дозволити універсальні ворота (★) [За замовчуванням ВИМКНЕНО]", batchAllowUniversalGates);
-                batchRandomizeArchetypes = EditorGUILayout.ToggleLeft("Урізноманітнювати архетипи полів (Острови, перешийки, лабіринти)", batchRandomizeArchetypes);
+                batchRandomizeArchetypes = EditorGUILayout.ToggleLeft("Урізноманітнювати форми полів (I/H, галерея, мости, лабіринти)", batchRandomizeArchetypes);
                 EditorGUI.indentLevel--;
 
                 EditorGUILayout.Space(6);
@@ -967,8 +1057,15 @@ namespace LegoPuzzle.Editor
             {
                 for (int lvl = batchFromLevel; lvl <= batchToLevel; lvl++)
                 {
-                    float progress = (float)(lvl - batchFromLevel) / total;
-                    EditorUtility.DisplayProgressBar("Пакетна генерація рівнів LEGO", $"Генерація Level {lvl:D3} ({lvl}/{batchToLevel})...", progress);
+                    float progress = (float)(lvl - batchFromLevel) / Mathf.Max(1, total);
+                    if (EditorUtility.DisplayCancelableProgressBar(
+                            "Пакетна генерація рівнів LEGO",
+                            $"Генерація Level {lvl:D3} ({lvl}/{batchToLevel})…",
+                            progress))
+                    {
+                        Debug.LogWarning("LevelGenerator: пакетну генерацію скасовано користувачем.");
+                        break;
+                    }
 
                     LegoLevelGenerator.GenerationSettings s = (batchDiffMode == BatchDifficultyMode.FixedDifficulty)
                         ? LegoLevelGenerator.GetSettingsForDifficulty(batchFixedTier, lvl)
@@ -1022,9 +1119,33 @@ namespace LegoPuzzle.Editor
                     }
                     s.allowUniversalGates = batchAllowUniversalGates;
 
-                    if (batchRandomizeArchetypes && s.allowObstacles && lvl >= 7)
+                    if (batchRandomizeArchetypes && lvl >= 7)
                     {
-                        s.archetype = (LegoLevelGenerator.BoardArchetype)((lvl % 4) + 1);
+                        // Cycle rectangular / silhouette boards — avoid monotonous squares.
+                        LegoLevelGenerator.BoardArchetype[] pool =
+                        {
+                            LegoLevelGenerator.BoardArchetype.DumbbellVertical,
+                            LegoLevelGenerator.BoardArchetype.DumbbellHorizontal,
+                            LegoLevelGenerator.BoardArchetype.TwinChambers,
+                            LegoLevelGenerator.BoardArchetype.WideGallery,
+                            LegoLevelGenerator.BoardArchetype.ChokepointChambers,
+                            LegoLevelGenerator.BoardArchetype.CorridorMaze,
+                            LegoLevelGenerator.BoardArchetype.FortressVault,
+                            LegoLevelGenerator.BoardArchetype.SwitchbackLabyrinth,
+                        };
+                        s.archetype = pool[lvl % pool.Length];
+                        if (s.archetype == LegoLevelGenerator.BoardArchetype.DumbbellVertical
+                            || s.archetype == LegoLevelGenerator.BoardArchetype.TwinChambers)
+                        {
+                            s.gridWidth = Mathf.Clamp(s.gridWidth, 8, 11);
+                            s.gridHeight = Mathf.Max(s.gridHeight, s.gridWidth + 3);
+                        }
+                        else if (s.archetype == LegoLevelGenerator.BoardArchetype.DumbbellHorizontal
+                                 || s.archetype == LegoLevelGenerator.BoardArchetype.WideGallery)
+                        {
+                            s.gridHeight = Mathf.Clamp(s.gridHeight, 7, 10);
+                            s.gridWidth = Mathf.Max(s.gridWidth, s.gridHeight + 3);
+                        }
                     }
 
                     string filename = $"Level_{lvl:D3}.asset";
@@ -1035,7 +1156,19 @@ namespace LegoPuzzle.Editor
                         continue;
                     }
 
-                    var genResult = LegoLevelGenerator.GenerateLevel(s);
+                    int capturedLvl = lvl;
+                    var genResult = LegoLevelGenerator.GenerateLevel(
+                        s,
+                        (p, status) =>
+                        {
+                            float overall = (capturedLvl - batchFromLevel + Mathf.Clamp01(p)) / Mathf.Max(1, total);
+                            return EditorUtility.DisplayCancelableProgressBar(
+                                "Пакетна генерація рівнів LEGO",
+                                $"Level {capturedLvl:D3}: {status}",
+                                overall);
+                        },
+                        timeBudgetSeconds: 0f);
+
                     if (genResult.success && genResult.levelData != null)
                     {
                         var existing = AssetDatabase.LoadAssetAtPath<LevelData>(filePath);

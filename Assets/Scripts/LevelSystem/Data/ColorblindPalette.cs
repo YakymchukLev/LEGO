@@ -61,13 +61,15 @@ namespace LegoPuzzle.Data
                     BlockColorType.Pink => new Color(0.95f, 0.40f, 0.65f),      // Bright Coral Pink
                     BlockColorType.Cyan => new Color(0.35f, 0.70f, 0.90f),      // Light Sky Blue (#56B4E9)
                     BlockColorType.Orange => new Color(0.90f, 0.60f, 0.00f),    // Amber Gold (#E69F00)
+                    BlockColorType.Teal => new Color(0.15f, 0.55f, 0.58f),      // Deep Teal (CB-safe)
+                    BlockColorType.ForestGreen => new Color(0.20f, 0.55f, 0.25f), // Deep Forest (CB-safe)
                     BlockColorType.Universal => new Color(0.98f, 0.98f, 0.98f), // Pure Pearl White
                     _ => customColor
                 };
             }
             else
             {
-                // Classic LEGO vibrant primary palette
+                // Classic LEGO vibrant primary palette + reference Teal / ForestGreen
                 return colorType switch
                 {
                     BlockColorType.Red => new Color(0.92f, 0.22f, 0.22f),
@@ -78,6 +80,8 @@ namespace LegoPuzzle.Data
                     BlockColorType.Pink => new Color(0.98f, 0.45f, 0.75f),
                     BlockColorType.Cyan => new Color(0.22f, 0.85f, 0.95f),
                     BlockColorType.Orange => new Color(0.98f, 0.55f, 0.15f),
+                    BlockColorType.Teal => new Color(0.125f, 0.502f, 0.565f),       // #208090
+                    BlockColorType.ForestGreen => new Color(0.157f, 0.502f, 0.188f), // #288030
                     BlockColorType.Universal => new Color(0.95f, 0.95f, 0.95f),
                     _ => customColor
                 };

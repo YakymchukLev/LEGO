@@ -682,7 +682,7 @@ namespace LegoPuzzle.Runtime
                 return;
             }
 
-            if (BoosterTutorialManager.IsBoosterTutorialActive) return;
+            if (BoosterTutorialManager.IsBoosterTutorialActive || MechanicUnlockTutorialManager.IsMechanicTutorialActive) return;
 
             if (PieceData.moveRestriction == MoveRestriction.Locked) return;
 
@@ -731,7 +731,7 @@ namespace LegoPuzzle.Runtime
                 PlayFrozenShake();
                 return;
             }
-            if (BoosterTutorialManager.IsBoosterTutorialActive) return;
+            if (BoosterTutorialManager.IsBoosterTutorialActive || MechanicUnlockTutorialManager.IsMechanicTutorialActive) return;
 
             isDragging = true;
             isLifted = true;
@@ -749,7 +749,7 @@ namespace LegoPuzzle.Runtime
         public void OnDrag(PointerEventData eventData)
         {
             if (IsFrozen || isPeelingDoubleLayer) return;
-            if (BoosterTutorialManager.IsBoosterTutorialActive || HammerBooster.IsHammerActive)
+            if (BoosterTutorialManager.IsBoosterTutorialActive || MechanicUnlockTutorialManager.IsMechanicTutorialActive || HammerBooster.IsHammerActive)
             {
                 if (isDragging)
                 {
@@ -903,7 +903,7 @@ namespace LegoPuzzle.Runtime
             SetOutlineActive(false);
             if (IsFrozen || isPeelingDoubleLayer) return;
 
-            if (BoosterTutorialManager.IsBoosterTutorialActive || HammerBooster.IsHammerActive)
+            if (BoosterTutorialManager.IsBoosterTutorialActive || MechanicUnlockTutorialManager.IsMechanicTutorialActive || HammerBooster.IsHammerActive)
             {
                 if (isDragging)
                 {

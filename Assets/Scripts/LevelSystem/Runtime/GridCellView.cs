@@ -855,6 +855,15 @@ namespace LegoPuzzle.Runtime
 
         private void OnDestroy()
         {
+            // Стрілка часто reparent на board — без явного Destroy лишається на наступних рівнях.
+            if (arrowDetachedToBoard && arrowTransform != null)
+            {
+                Destroy(arrowTransform.gameObject);
+                arrowTransform = null;
+                arrowRenderer = null;
+                arrowDetachedToBoard = false;
+            }
+
             if (iceShellObj != null)
             {
                 Destroy(iceShellObj);
@@ -1184,8 +1193,9 @@ namespace LegoPuzzle.Runtime
             // 1. Розсип уламків льоду, як на блоках
             SpawnGateIceShatterDebris();
 
-            if (levelLoader != null)
-                levelLoader.PlayBlockUnfreezeSound();
+            LevelLoader loader = levelLoader != null ? levelLoader : LevelLoader.Instance;
+            if (loader != null)
+                loader.PlayGateUnfreezeSound();
             if (GameSettingsManager.HasInstance)
                 GameSettingsManager.Instance.TriggerHapticExit();
 
